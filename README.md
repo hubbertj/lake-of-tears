@@ -1,26 +1,39 @@
 # Lake of Tears 💧
 
-**A self-hosted datalakehouse with AI-powered search, DuckDB analytics, and a custom web UI**
+**The open source, self-hosted Databricks alternative — datalakehouse with AI-powered search, unified web shell, and one-command deployment**
 
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 ![Docker Compose: ready](https://img.shields.io/badge/Docker%20Compose-ready-2496ED?logo=docker&logoColor=white)
 ![Helm: ready](https://img.shields.io/badge/Helm-ready-0F1689?logo=helm&logoColor=white)
 ![Python: 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+[![Discord](https://img.shields.io/badge/Discord-community-5865F2?logo=discord&logoColor=white)](https://lakeoftears.ai)
+[![Website](https://img.shields.io/badge/Website-lakeoftears.ai-00B4D8)](https://lakeoftears.ai)
 
-> Screenshot: Lake UI dashboard
+> Screenshot: Lake of Tears unified shell
+
+---
+
+## What is Lake of Tears?
+
+Lake of Tears is a self-hosted data platform inspired by Databricks — one URL, one sidebar, all your data tools in one place. It combines S3-compatible storage, a DuckDB SQL engine, AI-powered natural language search, automated pipelines, and business BI — without the enterprise price tag.
+
+**Everything runs behind a single nginx entry point.** JupyterLab, Apache Superset, and Apache Airflow are embedded as iframes within the Lake UI shell, so your team works from one consistent interface.
 
 ---
 
 ## Features
 
+- **Unified UI shell** — Databricks-inspired sidebar with Notebooks, SQL Editor, Dashboards, Pipelines, AI Query, and Data Catalog in one interface
+- **Single entry point** — nginx proxy at port 80; no juggling separate ports or tabs
 - S3-compatible object storage via MinIO CE
 - Parquet-native storage partitioned by `year=/month=/day=`
-- DuckDB query engine — run SQL directly over S3, no server required
+- DuckDB query engine — run SQL directly over S3, no separate query server required
 - 768-dim vector embeddings via Gemini + DuckDB VSS extension for semantic search
 - RAG queries: ask questions in plain English, get AI answers grounded in your data
 - Anomaly detection via scikit-learn Isolation Forest + Gemini explanations
-- Built-in pipeline orchestration with Apache Airflow
-- Custom web UI: dashboard, data browser, SQL playground, AI query interface
+- Built-in pipeline orchestration via Apache Airflow (embedded)
+- Interactive notebooks via JupyterLab (embedded)
+- BI dashboards via Apache Superset (embedded)
 - Deploy anywhere: Docker Compose (single node) or Kubernetes (Helm)
 
 ---
@@ -28,24 +41,35 @@
 ## Architecture
 
 ```
+                    http://localhost (port 80)
+                           │
+                    ┌──────▼──────┐
+                    │    nginx    │  ← single entry point
+                    └──────┬──────┘
+           ┌───────┬───────┼───────┬──────────┐
+           ▼       ▼       ▼       ▼          ▼
+        Lake UI  /jupyter/ /superset/ /airflow/  MinIO API
+        (shell)  JupyterLab Superset  Airflow    :9000
+
 ┌──────────────┐    ┌──────────────────────────────────────┐
 │  Data Sources│    │           Lake of Tears               │
 │              │    │                                        │
 │  Stripe      ├───►│  Airflow  ──►  MinIO CE (S3)          │
-│  Shopify     ├───►│  Pipeline     s3://datalake/raw/       │
+│  Shopify     ├───►│  Pipelines    s3://datalake/raw/       │
 │  HubSpot     ├───►│               s3://datalake/embeddings/│
 │  PostgreSQL  ├───►│                     │                  │
 └──────────────┘    │               DuckDB │ VSS             │
                     │                     ▼                  │
                     │  Gemini API ──► Embeddings             │
                     │                     │                  │
-                    │              ┌──────▼──────┐           │
-                    │              │   Lake UI   │           │
-                    │              │  Dashboard  │           │
-                    │              │  SQL Query  │           │
-                    │              │  AI / RAG   │           │
-                    │              └─────────────┘           │
-                    │  Jupyter · Superset · Airflow UI        │
+                    │     ┌───────────────▼──────────────┐   │
+                    │     │        Lake UI Shell          │   │
+                    │     │  Home · Catalog · Storage     │   │
+                    │     │  SQL Editor · AI Query        │   │
+                    │     │  Notebooks (Jupyter iframe)   │   │
+                    │     │  Dashboards (Superset iframe) │   │
+                    │     │  Pipelines  (Airflow  iframe) │   │
+                    │     └──────────────────────────────┘   │
                     └──────────────────────────────────────┘
 ```
 
@@ -61,15 +85,18 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Once running, open:
+Open **http://localhost** — the unified Lake UI shell.
 
-| Service | URL |
-|---------|-----|
-| Lake UI | http://localhost:3000 |
-| MinIO console | http://localhost:9001 |
-| JupyterLab | http://localhost:8888 |
-| Apache Superset | http://localhost:8088 |
-| Apache Airflow | http://localhost:8080 |
+All services are accessible from the left sidebar. Direct ports are also available if needed:
+
+| Service | Unified URL | Direct port |
+|---------|-------------|-------------|
+| Lake UI shell | http://localhost | http://localhost:3000 |
+| JupyterLab | http://localhost/jupyter/ | http://localhost:8888 |
+| Apache Superset | http://localhost/superset/ | http://localhost:8088 |
+| Apache Airflow | http://localhost/airflow/ | http://localhost:8080 |
+| MinIO Console | http://localhost:9001 | — |
+| MinIO S3 API | — | http://localhost:9000 |
 
 ---
 
@@ -80,9 +107,23 @@ helm install lake-of-tears ./deploy/helm/lake-of-tears \
   --set minio.rootPassword=your-password \
   --set gemini.apiKey=your-key \
   --set jupyter.token=your-token \
+  --set superset.secretKey=your-secret \
   --set superset.adminPassword=your-password \
-  --set airflow.adminPassword=your-password
+  --set airflow.secretKey=your-secret \
+  --set airflow.adminPassword=your-password \
+  --set ingress.host=lake.example.com \
+  --set ingress.minioConsoleHost=minio.example.com
 ```
+
+All services are routed through the nginx Ingress controller on a single host:
+
+| Path | Service |
+|------|---------|
+| `lake.example.com/` | Lake UI shell |
+| `lake.example.com/jupyter/` | JupyterLab |
+| `lake.example.com/superset/` | Apache Superset |
+| `lake.example.com/airflow/` | Apache Airflow |
+| `minio.example.com/` | MinIO Console |
 
 See `deploy/helm/lake-of-tears/values.yaml` for the full list of configurable values.
 
@@ -96,18 +137,21 @@ All configuration is driven by environment variables. Copy `.env.example` to `.e
 |---|---|---|---|
 | `MINIO_ROOT_USER` | yes | — | MinIO root username (5–20 chars) |
 | `MINIO_ROOT_PASSWORD` | yes | — | MinIO root password (8–40 chars) |
-| `MINIO_ENDPOINT` | no | `localhost:9000` | MinIO S3 API endpoint |
+| `MINIO_ENDPOINT` | no | `minio:9000` | MinIO S3 API endpoint (internal Docker hostname) |
 | `GEMINI_API_KEY` | yes | — | Google AI Studio API key |
 | `JUPYTER_TOKEN` | yes | — | JupyterLab access token |
 | `SUPERSET_ADMIN_PASSWORD` | yes | — | Superset admin password |
 | `SUPERSET_SECRET_KEY` | no | auto | Superset Flask secret key |
 | `AIRFLOW_PASSWORD` | yes | — | Airflow admin password |
 | `AIRFLOW_SECRET_KEY` | no | auto | Airflow Flask secret key |
+| `MINIO_CONSOLE_URL` | no | `http://localhost:9001` | URL for the "Open MinIO Console" link in the Storage page |
 | `STRIPE_SECRET_KEY` | no | — | Stripe secret key for payments ingestion |
 | `SHOPIFY_STORE_DOMAIN` | no | — | Shopify store domain (e.g. `mystore.myshopify.com`) |
 | `SHOPIFY_ACCESS_TOKEN` | no | — | Shopify Admin API access token |
 | `HUBSPOT_ACCESS_TOKEN` | no | — | HubSpot private app access token |
 | `POSTGRES_DSN` | no | — | PostgreSQL connection string for app DB ingestion |
+| `WEATHER_LAT` | no | `40.7128` | Latitude for Open-Meteo weather ingestion |
+| `WEATHER_LON` | no | `-74.0060` | Longitude for Open-Meteo weather ingestion |
 | `DATALAKE_DATA_DIR` | yes | `~` | Host path for Docker volume mounts |
 
 ---
@@ -405,11 +449,11 @@ Reads yesterday's raw data and generates a concise natural-language summary per 
 
 ### 3. Anomaly Detection (`pipeline/embed/anomaly_detect.py`) — 08:00 daily
 
-Runs scikit-learn Isolation Forest over numerical columns to flag statistical outliers. Flagged rows are passed to `gemini-2.5-flash` for a plain-English explanation of what the anomaly might mean. Results appear in the Lake UI alerts panel.
+Runs scikit-learn Isolation Forest over numerical columns to flag statistical outliers. Flagged rows are passed to `gemini-2.5-flash` for a plain-English explanation of what the anomaly might mean. Results appear in the Anomaly Detection page of the Lake UI.
 
 ### RAG Query (`pipeline/query/rag_query.py`) — on-demand
 
-Given a natural-language question, embeds the query with `gemini-embedding-001`, performs cosine similarity search over the embeddings in DuckDB, retrieves the top-K most relevant rows, and passes them as context to `gemini-2.5-flash` to generate a grounded answer.
+Given a natural-language question, embeds the query with `gemini-embedding-001`, performs cosine similarity search over the embeddings in DuckDB, retrieves the top-K most relevant rows, and passes them as context to `gemini-2.5-flash` to generate a grounded answer. Accessible from the **AI Query** page in the Lake UI.
 
 ---
 
@@ -427,9 +471,11 @@ Given a natural-language question, embeds the query with `gemini-embedding-001`,
 
 ## Architecture Notes
 
+- **Single entry point.** nginx sits in front of everything at port 80. JupyterLab (`/jupyter/`), Superset (`/superset/`), and Airflow (`/airflow/`) are configured to serve at their respective subpaths so they work correctly inside the Lake UI shell iframes. MinIO Console is exposed separately at port 9001 (Docker Compose) or its own Ingress host (Kubernetes) due to SPA routing limitations.
+
 - **All data is Parquet.** Files are partitioned by `year=/month=/day=` and written with `pyarrow`. DuckDB's Hive partitioning support makes date-range queries highly efficient.
 
-- **No separate vector database.** Embeddings are stored as `DOUBLE[]` columns in Parquet files. The DuckDB VSS extension builds an in-process HNSW index at query time. This keeps the stack simple — there is no Pinecone, Weaviate, or pgvector to operate.
+- **No separate vector database.** Embeddings are stored as `DOUBLE[]` columns in Parquet files. The DuckDB VSS extension builds an in-process HNSW index at query time. There is no Pinecone, Weaviate, or pgvector to operate.
 
 - **Embedding type discipline.** Parquet stores vectors as `DOUBLE[]` (unbounded list). DuckDB VSS requires fixed-size arrays. Every cosine similarity query must cast both sides: `array_cosine_similarity(embedding::DOUBLE[768], $query_vec::DOUBLE[768])`.
 
@@ -441,13 +487,13 @@ Given a natural-language question, embeds the query with `gemini-embedding-001`,
 
 ## Contributing
 
-Contributions are welcome. Please open an issue before starting significant work so we can discuss the approach. Bug fixes and documentation improvements can go straight to a pull request.
+We welcome contributions of all kinds — new data source connectors, UI improvements, pipeline enhancements, and documentation.
 
-1. Fork the repository and create a feature branch.
-2. Keep pull requests focused — one feature or fix per PR.
-3. Include a brief description of what changed and why.
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request, and review our [Code of Conduct](CODE_OF_CONDUCT.md).
 
-[Open an issue](https://github.com/hubbertj/lake-of-tears/issues) · [Browse open issues](https://github.com/hubbertj/lake-of-tears/issues)
+- **Community:** [lakeoftears.ai](https://lakeoftears.ai) · Discord (link on the website)
+- **Issues:** [github.com/hubbertj/lake-of-tears/issues](https://github.com/hubbertj/lake-of-tears/issues)
+- **Security:** See [SECURITY.md](SECURITY.md) for responsible disclosure.
 
 ---
 
