@@ -38,6 +38,10 @@ Thumbs.db
 alexa-exports/
 logs/
 
+# Claude Code memory
+.claude/
+CLAUDE.md
+
 # Docker volumes (local dev)
 minio-data/
 airflow/
