@@ -22,7 +22,8 @@ spec:
     spec:
       containers:
         - name: superset
-          image: {{ .Values.superset.image }}
+          image: {{ .Values.superset.image.repository }}:{{ .Values.superset.image.tag }}
+          imagePullPolicy: {{ .Values.superset.image.pullPolicy }}
           env:
             - name: SUPERSET_SECRET_KEY
               valueFrom:
@@ -41,12 +42,19 @@ spec:
           volumeMounts:
             - name: superset-home
               mountPath: /app/superset_home
+            - name: superset-config
+              mountPath: /app/pythonpath/superset_config.py
+              subPath: superset_config.py
+              readOnly: true
           resources:
             {{- toYaml .Values.superset.resources | nindent 12 }}
       volumes:
         - name: superset-home
           persistentVolumeClaim:
             claimName: {{ include "lake-of-tears.fullname" . }}-superset-home
+        - name: superset-config
+          configMap:
+            name: {{ include "lake-of-tears.fullname" . }}-superset-config
 
 ---
 apiVersion: v1
@@ -94,7 +102,7 @@ spec:
               done
       containers:
         - name: superset-init
-          image: {{ .Values.superset.image }}
+          image: {{ .Values.superset.image.repository }}:{{ .Values.superset.image.tag }}
           env:
             - name: SUPERSET_SECRET_KEY
               valueFrom:
@@ -121,7 +129,14 @@ spec:
           volumeMounts:
             - name: superset-home
               mountPath: /app/superset_home
+            - name: superset-config
+              mountPath: /app/pythonpath/superset_config.py
+              subPath: superset_config.py
+              readOnly: true
       volumes:
         - name: superset-home
           persistentVolumeClaim:
             claimName: {{ include "lake-of-tears.fullname" . }}-superset-home
+        - name: superset-config
+          configMap:
+            name: {{ include "lake-of-tears.fullname" . }}-superset-config

@@ -1,0 +1,31 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    labels: [dependencies]
+
+  - package-ecosystem: pip
+    directory: /ui
+    schedule:
+      interval: weekly
+    labels: [dependencies]
+
+  - package-ecosystem: docker
+    directory: /ui
+    schedule:
+      interval: weekly
+    labels: [dependencies]
+
+  - package-ecosystem: terraform
+    directory: /deploy/terraform/foundation
+    schedule:
+      interval: monthly
+    labels: [dependencies]
+
+  - package-ecosystem: terraform
+    directory: /deploy/terraform/services
+    schedule:
+      interval: monthly
+    labels: [dependencies]

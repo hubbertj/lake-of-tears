@@ -1,5 +1,5 @@
 ---
-# MinIO data — should be backed by NFS pointing at the TrueNAS ZFS dataset
+# MinIO data
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

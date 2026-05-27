@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Storage — Lake of Tears{% endblock %}
+{% block content %}
+
+<div class="max-w-5xl mx-auto space-y-6">
+
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-xl font-semibold text-gray-100">Storage</h1>
+      <p class="text-sm text-gray-500 mt-1">MinIO S3-compatible object store — bucket <code class="text-xs bg-gray-800 px-1 py-0.5 rounded text-gray-300">datalake</code></p>
+    </div>
+    <a href="{{ minio_console_url }}" target="_blank"
+       class="btn-ghost text-xs gap-1.5">
+      <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+      Open MinIO Console
+    </a>
+  </div>
+
+  {% if stats.ok %}
+
+  <!-- Bucket summary -->
+  <div class="grid grid-cols-3 gap-4">
+    <div class="stat-card">
+      <span class="text-xs text-gray-500 uppercase tracking-wide">Total Objects</span>
+      <span class="text-2xl font-bold text-gray-100">{{ stats.total_objects }}</span>
+      <span class="text-xs text-gray-600">{{ stats.total_size }} used</span>
+    </div>
+    <div class="stat-card">
+      <span class="text-xs text-gray-500 uppercase tracking-wide">Raw Data</span>
+      <span class="text-2xl font-bold text-gray-100">{{ stats.raw_objects }}</span>
+      <span class="text-xs text-gray-600">{{ stats.raw_size }}</span>
+    </div>
+    <div class="stat-card">
+      <span class="text-xs text-gray-500 uppercase tracking-wide">Embeddings</span>
+      <span class="text-2xl font-bold text-gray-100">{{ stats.embeddings_objects }}</span>
+      <span class="text-xs text-gray-600">{{ stats.embeddings_size }}</span>
+    </div>
+  </div>
+
+  <!-- Prefix breakdown -->
+  {% if stats.prefix_stats %}
+  <div class="card overflow-hidden">
+    <div class="px-5 py-4 border-b border-gray-800">
+      <h2 class="text-sm font-semibold text-gray-200">Top-level prefixes</h2>
+    </div>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-800 text-left">
+          <th class="px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Prefix</th>
+          <th class="px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right">Objects</th>
+          <th class="px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right">Size</th>
+          <th class="px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right">Last Modified</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-800/60">
+        {% for prefix, info in stats.prefix_stats.items() %}
+        <tr class="hover:bg-white/[0.02]">
+          <td class="px-5 py-3 font-mono text-xs text-gray-300">{{ prefix }}/</td>
+          <td class="px-5 py-3 text-gray-400 text-right tabular-nums">{{ info.objects }}</td>
+          <td class="px-5 py-3 text-gray-400 text-right tabular-nums">{{ info.size }}</td>
+          <td class="px-5 py-3 text-gray-500 text-right text-xs">{{ info.last_modified_str }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <!-- S3 endpoint info -->
+  <div class="card p-5">
+    <h2 class="text-sm font-semibold text-gray-300 mb-3">Connection details</h2>
+    <div class="space-y-2 font-mono text-xs text-gray-500">
+      <div class="flex gap-3"><span class="text-gray-600 w-24 shrink-0">S3 API</span><span class="text-gray-400">http://localhost:9000</span></div>
+      <div class="flex gap-3"><span class="text-gray-600 w-24 shrink-0">Bucket</span><span class="text-gray-400">datalake</span></div>
+      <div class="flex gap-3"><span class="text-gray-600 w-24 shrink-0">Region</span><span class="text-gray-400">us-east-1 (virtual)</span></div>
+      <div class="flex gap-3"><span class="text-gray-600 w-24 shrink-0">URL style</span><span class="text-gray-400">path</span></div>
+    </div>
+  </div>
+
+  {% else %}
+  <div class="card p-8 text-center">
+    <p class="text-gray-500 text-sm">Could not connect to MinIO.</p>
+    <p class="text-gray-600 text-xs mt-1 font-mono">{{ stats.error }}</p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

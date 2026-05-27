@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import os
 import math
+import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
 from typing import Any
 
 import boto3
@@ -14,11 +14,6 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from google import genai
-from google.genai import types
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
 
 _env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(_env_path)
@@ -28,22 +23,20 @@ MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "datalake")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+MINIO_CONSOLE_URL = os.getenv("MINIO_CONSOLE_URL", "http://localhost:9001")
 
-SOURCES = ["truenas", "jellyfin", "weather", "truenas_logs", "alexa"]
+SOURCES = ["stripe", "shopify", "hubspot", "postgres", "weather"]
 SOURCE_LABELS = {
-    "truenas": "TrueNAS",
-    "jellyfin": "Jellyfin",
+    "stripe": "Stripe",
+    "shopify": "Shopify",
+    "hubspot": "HubSpot",
+    "postgres": "PostgreSQL",
     "weather": "Weather",
-    "truenas_logs": "TrueNAS Logs",
-    "alexa": "Alexa",
 }
-
-# ---------------------------------------------------------------------------
-# App & templates
-# ---------------------------------------------------------------------------
 
 app = FastAPI(title="Lake of Tears")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -65,16 +58,13 @@ def _human_size(num_bytes: int) -> str:
         return "0 B"
     units = ["B", "KB", "MB", "GB", "TB"]
     exp = min(int(math.log(num_bytes, 1024)), len(units) - 1)
-    val = num_bytes / (1024**exp)
-    return f"{val:.1f} {units[exp]}"
+    return f"{num_bytes / (1024 ** exp):.1f} {units[exp]}"
 
 
 def _source_status(last_modified: datetime | None) -> str:
-    """Return 'green', 'yellow', or 'red' based on staleness."""
     if last_modified is None:
         return "red"
-    now = datetime.now(timezone.utc)
-    age = now - last_modified
+    age = datetime.now(timezone.utc) - last_modified
     if age <= timedelta(hours=25):
         return "green"
     if age <= timedelta(hours=48):
@@ -83,17 +73,14 @@ def _source_status(last_modified: datetime | None) -> str:
 
 
 def _get_bucket_stats() -> dict[str, Any]:
-    """Return bucket-level stats from MinIO, or an error dict."""
     try:
         s3 = _s3_client()
         paginator = s3.get_paginator("list_objects_v2")
-        total_objects = 0
-        total_size = 0
+        total_objects = total_size = 0
         prefix_stats: dict[str, dict] = {}
         source_last_modified: dict[str, datetime | None] = {s: None for s in SOURCES}
 
-        pages = paginator.paginate(Bucket=MINIO_BUCKET)
-        for page in pages:
+        for page in paginator.paginate(Bucket=MINIO_BUCKET):
             for obj in page.get("Contents", []):
                 key: str = obj["Key"]
                 size: int = obj["Size"]
@@ -102,7 +89,6 @@ def _get_bucket_stats() -> dict[str, Any]:
                 total_objects += 1
                 total_size += size
 
-                # Top-level prefix (raw/ or embeddings/)
                 top = key.split("/")[0] if "/" in key else key
                 if top not in prefix_stats:
                     prefix_stats[top] = {"objects": 0, "size": 0, "last_modified": None}
@@ -114,7 +100,6 @@ def _get_bucket_stats() -> dict[str, Any]:
                 ):
                     prefix_stats[top]["last_modified"] = last_mod
 
-                # Source-level last modified
                 for src in SOURCES:
                     if f"/{src}/" in key or key.startswith(f"{src}/"):
                         if (
@@ -151,7 +136,6 @@ def _get_bucket_stats() -> dict[str, Any]:
                 k: {
                     "objects": v["objects"],
                     "size": _human_size(v["size"]),
-                    "last_modified": v["last_modified"],
                     "last_modified_str": (
                         v["last_modified"].strftime("%Y-%m-%d %H:%M UTC")
                         if v["last_modified"]
@@ -162,32 +146,25 @@ def _get_bucket_stats() -> dict[str, Any]:
             },
             "sources": sources,
         }
-    except (botocore.exceptions.EndpointConnectionError, botocore.exceptions.ConnectionError, Exception) as exc:
+    except (
+        botocore.exceptions.EndpointConnectionError,
+        botocore.exceptions.ConnectionError,
+        Exception,
+    ) as exc:
         return {"ok": False, "error": str(exc)}
 
 
-def _get_browse_data() -> dict[str, Any]:
-    """Return per-prefix listing for browse view."""
+def _get_catalog_data() -> dict[str, Any]:
     try:
         s3 = _s3_client()
         paginator = s3.get_paginator("list_objects_v2")
-
-        # Group by source prefix inside raw/ and embeddings/
         groups: dict[str, dict] = {}
 
-        pages = paginator.paginate(Bucket=MINIO_BUCKET)
-        for page in pages:
+        for page in paginator.paginate(Bucket=MINIO_BUCKET):
             for obj in page.get("Contents", []):
                 key: str = obj["Key"]
-                size: int = obj["Size"]
-                last_mod: datetime = obj["LastModified"]
-
                 parts = key.split("/")
-                # Determine grouping key: top-level/source
-                if len(parts) >= 2:
-                    group_key = f"{parts[0]}/{parts[1]}"
-                else:
-                    group_key = parts[0]
+                group_key = f"{parts[0]}/{parts[1]}" if len(parts) >= 2 else parts[0]
 
                 if group_key not in groups:
                     groups[group_key] = {
@@ -197,12 +174,10 @@ def _get_browse_data() -> dict[str, Any]:
                         "last_modified": None,
                     }
                 groups[group_key]["objects"] += 1
-                groups[group_key]["size"] += size
-                if (
-                    groups[group_key]["last_modified"] is None
-                    or last_mod > groups[group_key]["last_modified"]
-                ):
-                    groups[group_key]["last_modified"] = last_mod
+                groups[group_key]["size"] += obj["Size"]
+                lm = obj["LastModified"]
+                if groups[group_key]["last_modified"] is None or lm > groups[group_key]["last_modified"]:
+                    groups[group_key]["last_modified"] = lm
 
         rows = []
         for g in sorted(groups.values(), key=lambda x: x["prefix"]):
@@ -216,7 +191,6 @@ def _get_browse_data() -> dict[str, Any]:
                     "s3_path": f"s3://{MINIO_BUCKET}/{g['prefix']}/**/*.parquet",
                 }
             )
-
         return {"ok": True, "rows": rows}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
@@ -253,16 +227,14 @@ def _ai_query(question: str) -> dict[str, Any]:
     try:
         client = genai.Client(api_key=GEMINI_API_KEY)
 
-        # Embed the question
         embed_resp = client.models.embed_content(
             model="gemini-embedding-001",
             contents=question,
         )
         q_vec = embed_resp.embeddings[0].values
         dim = len(q_vec)
-
-        # VSS search in DuckDB
         vec_literal = "[" + ", ".join(str(v) for v in q_vec) + "]"
+
         sql = f"""
             INSTALL httpfs; LOAD httpfs; INSTALL vss; LOAD vss;
             SET s3_endpoint='{MINIO_ENDPOINT}';
@@ -288,35 +260,30 @@ def _ai_query(question: str) -> dict[str, Any]:
         columns = [desc[0] for desc in rel.description]
         con.close()
 
-        context_snippets = []
-        for row in rows:
-            row_dict = dict(zip(columns, row))
-            snippet = {
-                "source": row_dict.get("source", ""),
-                "ingested_at": str(row_dict.get("ingested_at", "")),
-                "summary": row_dict.get("summary", ""),
-                "score": round(float(row_dict.get("score", 0)), 4),
+        context_snippets = [
+            {
+                "source": r[0],
+                "ingested_at": str(r[1]),
+                "summary": r[2],
+                "score": round(float(r[3]), 4),
             }
-            context_snippets.append(snippet)
-
+            for r in rows
+        ]
         context_text = "\n\n".join(
             f"[{s['source']} @ {s['ingested_at']} (score={s['score']})]:\n{s['summary']}"
             for s in context_snippets
         )
-
         prompt = (
-            f"You are an assistant for a home lab datalakehouse called Lake of Tears. "
-            f"Answer the following question using the context snippets below. "
-            f"Be concise and cite which data sources support your answer.\n\n"
-            f"Question: {question}\n\n"
-            f"Context:\n{context_text}"
+            "You are an analyst for a business datalakehouse called Lake of Tears. "
+            "Answer the following question using the context snippets below. "
+            "Be concise and cite which data sources support your answer.\n\n"
+            f"Question: {question}\n\nContext:\n{context_text}"
         )
 
-        chat_resp = client.models.generate_content(
+        answer = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
-        )
-        answer = chat_resp.text
+        ).text
 
         return {"ok": True, "answer": answer, "snippets": context_snippets}
     except Exception as exc:
@@ -329,61 +296,70 @@ def _ai_query(question: str) -> dict[str, Any]:
 
 EXAMPLE_QUERIES = [
     {
-        "label": "Recent TrueNAS stats",
-        "sql": "SELECT * FROM read_parquet('s3://datalake/raw/truenas/**/*.parquet') ORDER BY ingested_at DESC LIMIT 10",
+        "label": "Recent Stripe charges",
+        "sql": "SELECT * FROM read_parquet('s3://datalake/raw/stripe_charges/**/*.parquet') ORDER BY created_at DESC LIMIT 20",
     },
     {
-        "label": "Latest weather forecast",
-        "sql": "SELECT * FROM read_parquet('s3://datalake/raw/weather/**/*.parquet') ORDER BY ingested_at DESC LIMIT 10",
+        "label": "Top Shopify products by revenue",
+        "sql": "SELECT title, sum(quantity) AS units, round(sum(price_usd * quantity), 2) AS revenue FROM read_parquet('s3://datalake/raw/shopify_line_items/**/*.parquet') GROUP BY title ORDER BY revenue DESC LIMIT 20",
+    },
+    {
+        "label": "Open HubSpot pipeline by stage",
+        "sql": "SELECT stage, count(*) AS deals, round(sum(amount_usd), 2) AS value FROM read_parquet('s3://datalake/raw/hubspot_deals/**/*.parquet') WHERE stage NOT IN ('closedwon','closedlost') GROUP BY stage ORDER BY value DESC",
     },
     {
         "label": "Embedding count by source",
         "sql": "SELECT source, COUNT(*) AS cnt FROM read_parquet('s3://datalake/embeddings/**/*.parquet') GROUP BY source ORDER BY cnt DESC",
     },
-    {
-        "label": "Recent Jellyfin plays",
-        "sql": "SELECT * FROM read_parquet('s3://datalake/raw/jellyfin/**/*.parquet') ORDER BY ingested_at DESC LIMIT 10",
-    },
 ]
 
 EXAMPLE_QUESTIONS = [
-    "What TrueNAS alerts have fired in the last week?",
-    "What movies or shows have been watched recently on Jellyfin?",
-    "What is the current weather forecast summary?",
-    "Are there any disk health warnings?",
+    "What was our revenue trend over the last 30 days?",
+    "Which Shopify products are selling the most this quarter?",
+    "Are there any unusual spikes in Stripe refunds?",
+    "What is the current state of our sales pipeline in HubSpot?",
 ]
 
 
-@app.get("/", response_class=RedirectResponse)
-async def root():
-    return RedirectResponse(url="/dashboard", status_code=302)
-
-
-@app.get("/dashboard", response_class=HTMLResponse)
-async def dashboard(request: Request):
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
     stats = _get_bucket_stats()
     return templates.TemplateResponse(
-        "dashboard.html",
-        {"request": request, "stats": stats, "page": "dashboard"},
+        "home.html",
+        {"request": request, "stats": stats, "page": "home"},
     )
 
 
-@app.get("/browse", response_class=HTMLResponse)
-async def browse(request: Request):
-    data = _get_browse_data()
+@app.get("/catalog", response_class=HTMLResponse)
+async def catalog(request: Request):
+    data = _get_catalog_data()
     return templates.TemplateResponse(
-        "browse.html",
-        {"request": request, "data": data, "page": "browse"},
+        "catalog.html",
+        {"request": request, "data": data, "page": "catalog"},
     )
 
 
-@app.get("/query", response_class=HTMLResponse)
-async def query_get(request: Request):
+@app.get("/storage", response_class=HTMLResponse)
+async def storage(request: Request):
+    stats = _get_bucket_stats()
     return templates.TemplateResponse(
-        "query.html",
+        "storage.html",
         {
             "request": request,
-            "page": "query",
+            "stats": stats,
+            "page": "storage",
+            "minio_console_url": MINIO_CONSOLE_URL,
+        },
+    )
+
+
+@app.get("/sql", response_class=HTMLResponse)
+async def sql_get(request: Request):
+    return templates.TemplateResponse(
+        "sql.html",
+        {
+            "request": request,
+            "page": "sql",
             "result": None,
             "sql": EXAMPLE_QUERIES[0]["sql"],
             "example_queries": EXAMPLE_QUERIES,
@@ -391,18 +367,69 @@ async def query_get(request: Request):
     )
 
 
-@app.post("/query", response_class=HTMLResponse)
-async def query_post(request: Request, sql: str = Form(...)):
+@app.post("/sql", response_class=HTMLResponse)
+async def sql_post(request: Request, sql: str = Form(...)):
     result = _run_query(sql)
     return templates.TemplateResponse(
-        "query.html",
+        "sql.html",
         {
             "request": request,
-            "page": "query",
+            "page": "sql",
             "result": result,
             "sql": sql,
             "example_queries": EXAMPLE_QUERIES,
         },
+    )
+
+
+@app.get("/dashboards", response_class=HTMLResponse)
+async def dashboards(request: Request):
+    return templates.TemplateResponse(
+        "embed.html",
+        {
+            "request": request,
+            "page": "dashboards",
+            "embed_url": "/superset/",
+            "embed_title": "Dashboards",
+            "embed_service": "Apache Superset",
+        },
+    )
+
+
+@app.get("/pipelines", response_class=HTMLResponse)
+async def pipelines(request: Request):
+    return templates.TemplateResponse(
+        "embed.html",
+        {
+            "request": request,
+            "page": "pipelines",
+            "embed_url": "/airflow/",
+            "embed_title": "Pipelines",
+            "embed_service": "Apache Airflow",
+        },
+    )
+
+
+@app.get("/notebooks", response_class=HTMLResponse)
+async def notebooks(request: Request):
+    return templates.TemplateResponse(
+        "embed.html",
+        {
+            "request": request,
+            "page": "notebooks",
+            "embed_url": "/jupyter/",
+            "embed_title": "Notebooks",
+            "embed_service": "JupyterLab",
+        },
+    )
+
+
+@app.get("/ingest", response_class=HTMLResponse)
+async def ingest(request: Request):
+    stats = _get_bucket_stats()
+    return templates.TemplateResponse(
+        "ingest.html",
+        {"request": request, "stats": stats, "page": "ingest"},
     )
 
 
@@ -433,3 +460,32 @@ async def ai_post(request: Request, question: str = Form(...)):
             "example_questions": EXAMPLE_QUESTIONS,
         },
     )
+
+
+@app.get("/anomalies", response_class=HTMLResponse)
+async def anomalies(request: Request):
+    return templates.TemplateResponse(
+        "anomalies.html",
+        {"request": request, "page": "anomalies"},
+    )
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+# Legacy redirects
+@app.get("/dashboard", response_class=RedirectResponse)
+async def redirect_dashboard():
+    return RedirectResponse(url="/", status_code=301)
+
+
+@app.get("/browse", response_class=RedirectResponse)
+async def redirect_browse():
+    return RedirectResponse(url="/catalog", status_code=301)
+
+
+@app.get("/query", response_class=RedirectResponse)
+async def redirect_query():
+    return RedirectResponse(url="/sql", status_code=301)

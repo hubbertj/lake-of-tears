@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}SQL Editor — Lake of Tears{% endblock %}
+{% block content %}
+
+<div class="h-full flex flex-col gap-4">
+
+  <div class="flex items-center justify-between shrink-0">
+    <h1 class="text-xl font-semibold text-gray-100">SQL Editor</h1>
+    <span class="text-xs text-gray-600">DuckDB · reads directly from S3 Parquet</span>
+  </div>
+
+  <!-- Editor -->
+  <form method="post" action="/sql" class="flex-1 flex flex-col gap-3 min-h-0">
+    <div class="flex items-start gap-3 shrink-0">
+      <div class="flex-1">
+        <textarea
+          name="sql"
+          rows="8"
+          class="input-dark font-mono text-xs resize-none h-44"
+          placeholder="SELECT * FROM read_parquet('s3://datalake/raw/**/*.parquet') LIMIT 10"
+          spellcheck="false"
+        >{{ sql }}</textarea>
+      </div>
+      <div class="flex flex-col gap-2 shrink-0">
+        <button type="submit" class="btn-primary whitespace-nowrap">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          Run Query
+        </button>
+      </div>
+    </div>
+
+    <!-- Example queries -->
+    <div class="flex flex-wrap gap-2 shrink-0">
+      {% for eq in example_queries %}
+      <button type="button"
+              onclick="document.querySelector('textarea[name=sql]').value = {{ eq.sql | tojson }}"
+              class="btn-ghost text-xs py-1">
+        {{ eq.label }}
+      </button>
+      {% endfor %}
+    </div>
+  </form>
+
+  <!-- Results -->
+  {% if result %}
+  <div class="flex-1 card overflow-hidden flex flex-col min-h-0">
+    {% if result.ok %}
+    <div class="px-4 py-2.5 border-b border-gray-800 flex items-center justify-between shrink-0">
+      <span class="text-xs text-gray-400">{{ result.row_count }} row{% if result.row_count != 1 %}s{% endif %}</span>
+    </div>
+    <div class="overflow-auto flex-1">
+      <table class="w-full text-xs">
+        <thead class="sticky top-0 bg-gray-900 border-b border-gray-800">
+          <tr>
+            {% for col in result.columns %}
+            <th class="px-4 py-2 text-left font-semibold text-gray-500 whitespace-nowrap">{{ col }}</th>
+            {% endfor %}
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-800/50">
+          {% for row in result.rows %}
+          <tr class="hover:bg-white/[0.02]">
+            {% for cell in row %}
+            <td class="px-4 py-2 text-gray-300 font-mono whitespace-nowrap max-w-xs truncate">{{ cell }}</td>
+            {% endfor %}
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="p-6">
+      <p class="text-red-400 text-sm font-semibold mb-1">Query error</p>
+      <p class="text-gray-500 text-xs font-mono">{{ result.error }}</p>
+    </div>
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

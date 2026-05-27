@@ -22,14 +22,17 @@ spec:
     spec:
       containers:
         - name: jupyter
-          image: {{ .Values.jupyter.image }}
+          image: {{ .Values.jupyter.image.repository }}:{{ .Values.jupyter.image.tag }}
+          imagePullPolicy: {{ .Values.jupyter.image.pullPolicy }}
           command:
             - bash
             - -c
             - |
               pip install duckdb requests boto3 google-genai --quiet &&
-              pip install --force-reinstall 'anyio>=4.13' 'jupyter_server>=2.14' 'jupyterlab==4.5.7' --quiet &&
-              start-notebook.py --ServerApp.allow_origin='*'
+              pip install --force-reinstall 'anyio>=4.13' 'jupyter_server>=2.14' --quiet &&
+              start-notebook.py \
+                --ServerApp.base_url='/jupyter/' \
+                --ServerApp.allow_origin='*'
           env:
             - name: JUPYTER_TOKEN
               valueFrom:
@@ -37,13 +40,13 @@ spec:
                   name: {{ include "lake-of-tears.fullname" . }}-credentials
                   key: JUPYTER_TOKEN
             - name: MINIO_ENDPOINT
-              value: "minio:{{ .Values.minio.service.apiPort }}"
-            - name: MINIO_ROOT_USER
+              value: "{{ include "lake-of-tears.fullname" . }}-minio:{{ .Values.minio.service.apiPort }}"
+            - name: MINIO_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "lake-of-tears.fullname" . }}-credentials
                   key: MINIO_ROOT_USER
-            - name: MINIO_ROOT_PASSWORD
+            - name: MINIO_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "lake-of-tears.fullname" . }}-credentials

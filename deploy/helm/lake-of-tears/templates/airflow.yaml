@@ -24,7 +24,8 @@ spec:
         runAsUser: 0   # root required for pip installs at startup
       containers:
         - name: airflow
-          image: {{ .Values.airflow.image }}
+          image: {{ .Values.airflow.image.repository }}:{{ .Values.airflow.image.tag }}
+          imagePullPolicy: {{ .Values.airflow.image.pullPolicy }}
           args: ["standalone"]
           env:
             - name: AIRFLOW__CORE__EXECUTOR
@@ -38,6 +39,10 @@ spec:
                 secretKeyRef:
                   name: {{ include "lake-of-tears.fullname" . }}-credentials
                   key: AIRFLOW_SECRET_KEY
+            # BASE_URL tells Airflow to prefix all generated links with /airflow/.
+            # The nginx Ingress strips this prefix before forwarding to the pod.
+            - name: AIRFLOW__WEBSERVER__BASE_URL
+              value: "https://{{ .Values.ingress.host }}/airflow/"
             - name: _AIRFLOW_WWW_USER_USERNAME
               value: admin
             - name: _AIRFLOW_WWW_USER_PASSWORD
@@ -45,40 +50,52 @@ spec:
                 secretKeyRef:
                   name: {{ include "lake-of-tears.fullname" . }}-credentials
                   key: AIRFLOW_ADMIN_PASSWORD
-            # numpy<2 required: the target CPU lacks SSE4.2
             - name: _PIP_ADDITIONAL_REQUIREMENTS
-              value: {{ .Values.airflow.extraPipPackages | quote }}
+              value: {{ .Values.airflow.extraPipPackages | join " " | quote }}
             - name: MINIO_ENDPOINT
-              value: "minio:{{ .Values.minio.service.apiPort }}"
-            - name: MINIO_ROOT_USER
+              value: "{{ include "lake-of-tears.fullname" . }}-minio:{{ .Values.minio.service.apiPort }}"
+            - name: MINIO_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "lake-of-tears.fullname" . }}-credentials
                   key: MINIO_ROOT_USER
-            - name: MINIO_ROOT_PASSWORD
+            - name: MINIO_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "lake-of-tears.fullname" . }}-credentials
                   key: MINIO_ROOT_PASSWORD
+            - name: MINIO_BUCKET
+              value: datalake
             - name: GEMINI_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "lake-of-tears.fullname" . }}-credentials
                   key: GEMINI_API_KEY
-            - name: TRUENAS_HOST
-              value: {{ .Values.truenas.host | quote }}
-            - name: TRUENAS_API_KEY
+            - name: STRIPE_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ include "lake-of-tears.fullname" . }}-credentials
-                  key: TRUENAS_API_KEY
-            - name: JELLYFIN_URL
-              value: "http://{{ .Values.truenas.host }}:8096"
-            - name: JELLYFIN_API_KEY
+                  key: STRIPE_SECRET_KEY
+            - name: SHOPIFY_STORE_DOMAIN
               valueFrom:
                 secretKeyRef:
                   name: {{ include "lake-of-tears.fullname" . }}-credentials
-                  key: JELLYFIN_API_KEY
+                  key: SHOPIFY_STORE_DOMAIN
+            - name: SHOPIFY_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: SHOPIFY_ACCESS_TOKEN
+            - name: HUBSPOT_ACCESS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: HUBSPOT_ACCESS_TOKEN
+            - name: POSTGRES_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: POSTGRES_DSN
           ports:
             - name: http
               containerPort: {{ .Values.airflow.service.port }}

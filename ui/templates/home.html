@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Home — Lake of Tears{% endblock %}
+{% block content %}
+
+<div class="max-w-5xl mx-auto space-y-8">
+
+  <!-- Header -->
+  <div>
+    <h1 class="text-xl font-semibold text-gray-100">Home</h1>
+    <p class="text-sm text-gray-500 mt-1">Lake of Tears datalakehouse — your open source Databricks alternative.</p>
+  </div>
+
+  {% if stats.ok %}
+
+  <!-- Stats row -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-4">
+    <div class="stat-card">
+      <span class="text-xs text-gray-500 uppercase tracking-wide">Total Objects</span>
+      <span class="text-2xl font-bold text-gray-100">{{ stats.total_objects | default(0) }}</span>
+      <span class="text-xs text-gray-600">{{ stats.total_size }}</span>
+    </div>
+    <div class="stat-card">
+      <span class="text-xs text-gray-500 uppercase tracking-wide">Raw Records</span>
+      <span class="text-2xl font-bold text-gray-100">{{ stats.raw_objects | default(0) }}</span>
+      <span class="text-xs text-gray-600">{{ stats.raw_size }}</span>
+    </div>
+    <div class="stat-card">
+      <span class="text-xs text-gray-500 uppercase tracking-wide">Embeddings</span>
+      <span class="text-2xl font-bold text-gray-100">{{ stats.embeddings_objects | default(0) }}</span>
+      <span class="text-xs text-gray-600">{{ stats.embeddings_size }}</span>
+    </div>
+    <div class="stat-card">
+      <span class="text-xs text-gray-500 uppercase tracking-wide">Sources</span>
+      <span class="text-2xl font-bold text-gray-100">
+        {{ stats.sources | selectattr('status', 'equalto', 'green') | list | length }}
+        <span class="text-base font-normal text-gray-500">/ {{ stats.sources | length }}</span>
+      </span>
+      <span class="text-xs text-gray-600">active</span>
+    </div>
+  </div>
+
+  <!-- Source health -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+      <h2 class="text-sm font-semibold text-gray-200">Data Source Health</h2>
+      <a href="/ingest" class="text-xs text-blue-400 hover:text-blue-300 transition-colors">Manage sources →</a>
+    </div>
+    <div class="divide-y divide-gray-800">
+      {% for src in stats.sources %}
+      <div class="px-5 py-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <span class="w-2 h-2 rounded-full
+            {% if src.status == 'green' %}bg-emerald-400
+            {% elif src.status == 'yellow' %}bg-yellow-400
+            {% else %}bg-red-500{% endif %}"></span>
+          <span class="text-sm text-gray-300 font-medium">{{ src.label }}</span>
+        </div>
+        <div class="flex items-center gap-4">
+          <span class="text-xs text-gray-600">{{ src.last_modified_str }}</span>
+          {% if src.status == 'green' %}
+            <span class="badge-green">Synced</span>
+          {% elif src.status == 'yellow' %}
+            <span class="badge-yellow">Stale</span>
+          {% else %}
+            <span class="badge-red">No data</span>
+          {% endif %}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  {% else %}
+  <div class="card p-8 text-center">
+    <p class="text-gray-500 text-sm">Could not connect to MinIO.</p>
+    <p class="text-gray-600 text-xs mt-1 font-mono">{{ stats.error }}</p>
+  </div>
+  {% endif %}
+
+  <!-- Quick actions -->
+  <div>
+    <h2 class="text-sm font-semibold text-gray-300 mb-3">Quick actions</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <a href="/sql" class="card p-4 hover:border-gray-600 transition-colors group">
+        <div class="flex items-center gap-2 mb-2">
+          <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+          <span class="text-sm font-medium text-gray-200 group-hover:text-white transition-colors">SQL Editor</span>
+        </div>
+        <p class="text-xs text-gray-500">Query data with DuckDB</p>
+      </a>
+      <a href="/ai" class="card p-4 hover:border-gray-600 transition-colors group">
+        <div class="flex items-center gap-2 mb-2">
+          <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+          <span class="text-sm font-medium text-gray-200 group-hover:text-white transition-colors">AI Query</span>
+        </div>
+        <p class="text-xs text-gray-500">Ask questions in plain English</p>
+      </a>
+      <a href="/notebooks" class="card p-4 hover:border-gray-600 transition-colors group">
+        <div class="flex items-center gap-2 mb-2">
+          <svg class="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+          <span class="text-sm font-medium text-gray-200 group-hover:text-white transition-colors">Notebooks</span>
+        </div>
+        <p class="text-xs text-gray-500">JupyterLab environment</p>
+      </a>
+      <a href="/pipelines" class="card p-4 hover:border-gray-600 transition-colors group">
+        <div class="flex items-center gap-2 mb-2">
+          <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <span class="text-sm font-medium text-gray-200 group-hover:text-white transition-colors">Pipelines</span>
+        </div>
+        <p class="text-xs text-gray-500">Manage Airflow DAGs</p>
+      </a>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

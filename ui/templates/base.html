@@ -7,17 +7,12 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
-      darkMode: 'class',
       theme: {
         extend: {
           colors: {
-            brand: {
-              50:  '#eff6ff',
-              400: '#60a5fa',
-              500: '#3b82f6',
-              600: '#2563eb',
-              700: '#1d4ed8',
-            }
+            sidebar: '#161616',
+            topbar: '#1a1a1a',
+            content: '#111111',
           }
         }
       }
@@ -25,90 +20,143 @@
   </script>
   <style type="text/tailwindcss">
     @layer base {
-      html { @apply dark; }
-      body { @apply bg-gray-900 text-gray-100 min-h-screen font-sans antialiased; }
+      html, body { height: 100%; overflow: hidden; }
+      body { @apply bg-[#111111] text-gray-100 font-sans antialiased; }
     }
     @layer components {
-      .card { @apply bg-gray-800 rounded-xl border border-gray-700 shadow-lg; }
-      .btn-primary { @apply inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-medium rounded-lg transition-colors duration-150 cursor-pointer; }
-      .nav-link { @apply flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-100 hover:bg-gray-800 transition-colors duration-150; }
-      .nav-link-active { @apply flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-blue-400 bg-gray-800; }
-      .input-dark { @apply w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors; }
-      .badge-green { @apply inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-900/50 text-emerald-400 border border-emerald-800; }
-      .badge-yellow { @apply inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-yellow-900/50 text-yellow-400 border border-yellow-800; }
-      .badge-red { @apply inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-red-900/50 text-red-400 border border-red-800; }
+      .nav-section  { @apply px-3 pt-5 pb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-600 select-none; }
+      .nav-item     { @apply flex items-center gap-2.5 px-3 py-[7px] text-[13px] text-gray-400 hover:text-gray-100 hover:bg-white/[0.06] rounded-md cursor-pointer transition-colors duration-100; }
+      .nav-item-active { @apply flex items-center gap-2.5 px-3 py-[7px] text-[13px] text-white bg-blue-600/25 rounded-md font-medium; }
+      .card         { @apply bg-gray-900 rounded-lg border border-gray-800; }
+      .btn-primary  { @apply inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors cursor-pointer; }
+      .btn-ghost    { @apply inline-flex items-center gap-2 px-3 py-1.5 text-gray-400 hover:text-gray-100 hover:bg-white/[0.06] text-sm rounded-md transition-colors cursor-pointer; }
+      .input-dark   { @apply w-full bg-gray-800 border border-gray-700 rounded-md px-3 py-2 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 text-sm transition-colors; }
+      .badge-green  { @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-emerald-900/40 text-emerald-400 border border-emerald-800/50; }
+      .badge-yellow { @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-yellow-900/40 text-yellow-400 border border-yellow-800/50; }
+      .badge-red    { @apply inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-red-900/40 text-red-400 border border-red-800/50; }
+      .stat-card    { @apply card p-5 flex flex-col gap-1; }
     }
   </style>
+  {% block head %}{% endblock %}
 </head>
-<body class="flex flex-col min-h-screen">
 
-  <!-- Top nav -->
-  <header class="sticky top-0 z-30 bg-gray-900/95 backdrop-blur border-b border-gray-800">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-      <div class="flex items-center justify-between h-14">
+<body class="flex h-screen">
 
-        <!-- Logo -->
-        <a href="/dashboard" class="flex items-center gap-2 shrink-0">
-          <span class="text-2xl leading-none select-none">💧</span>
-          <span class="text-lg font-bold tracking-tight text-gray-100">Lake of Tears</span>
-        </a>
+  <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
+  <aside class="w-[220px] bg-[#161616] border-r border-white/[0.07] flex flex-col shrink-0 overflow-y-auto">
 
-        <!-- Desktop nav -->
-        <nav class="hidden sm:flex items-center gap-1">
-          <a href="/dashboard"
-             class="{% if page == 'dashboard' %}nav-link-active{% else %}nav-link{% endif %}">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round"
-                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>
-            </svg>
-            Dashboard
-          </a>
-          <a href="/browse"
-             class="{% if page == 'browse' %}nav-link-active{% else %}nav-link{% endif %}">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round"
-                d="M3 7a2 2 0 012-2h14a2 2 0 012 2v1H3V7zm0 4h18M3 15h18M3 19h18"/>
-            </svg>
-            Browse
-          </a>
-          <a href="/query"
-             class="{% if page == 'query' %}nav-link-active{% else %}nav-link{% endif %}">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round"
-                d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
-            </svg>
-            SQL Query
-          </a>
-          <a href="/ai"
-             class="{% if page == 'ai' %}nav-link-active{% else %}nav-link{% endif %}">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round"
-                d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
-            </svg>
-            AI Query
-          </a>
-        </nav>
-
-        <!-- Mobile hamburger (purely decorative here — full JS omitted for simplicity) -->
-        <div class="sm:hidden text-gray-400">
-          <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
-          </svg>
-        </div>
-
-      </div>
+    <!-- Logo -->
+    <div class="h-[48px] flex items-center px-4 border-b border-white/[0.07] shrink-0">
+      <a href="/" class="flex items-center gap-2.5">
+        <span class="text-[18px] leading-none">💧</span>
+        <span class="text-[13px] font-bold text-gray-100 tracking-tight">Lake of Tears</span>
+      </a>
     </div>
-  </header>
 
-  <!-- Page content -->
-  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-    {% block content %}{% endblock %}
-  </main>
+    <!-- Navigation -->
+    <nav class="flex-1 py-1 px-2 overflow-y-auto">
 
-  <!-- Footer -->
-  <footer class="border-t border-gray-800 mt-auto py-4 text-center text-xs text-gray-600">
-    Lake of Tears &mdash; home lab datalakehouse &middot; MinIO + DuckDB + Gemini
-  </footer>
+      <a href="/" class="{% if page == 'home' %}nav-item-active{% else %}nav-item{% endif %} mt-1">
+        <!-- Home icon -->
+        <svg class="w-[15px] h-[15px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+        Home
+      </a>
+
+      <p class="nav-section">Workspace</p>
+
+      <a href="/catalog" class="{% if page == 'catalog' %}nav-item-active{% else %}nav-item{% endif %}">
+        <!-- Table icon -->
+        <svg class="w-[15px] h-[15px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M3 14h18M10 3v18M3 6a3 3 0 013-3h12a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6z"/></svg>
+        Catalog
+      </a>
+
+      <a href="/storage" class="{% if page == 'storage' %}nav-item-active{% else %}nav-item{% endif %}">
+        <!-- Database icon -->
+        <svg class="w-[15px] h-[15px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/></svg>
+        Storage
+      </a>
+
+      <p class="nav-section">SQL</p>
+
+      <a href="/sql" class="{% if page == 'sql' %}nav-item-active{% else %}nav-item{% endif %}">
+        <!-- Code icon -->
+        <svg class="w-[15px] h-[15px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+        SQL Editor
+      </a>
+
+      <a href="/dashboards" class="{% if page == 'dashboards' %}nav-item-active{% else %}nav-item{% endif %}">
+        <!-- Chart icon -->
+        <svg class="w-[15px] h-[15px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+        Dashboards
+      </a>
+
+      <p class="nav-section">Data Engineering</p>
+
+      <a href="/pipelines" class="{% if page == 'pipelines' %}nav-item-active{% else %}nav-item{% endif %}">
+        <!-- Refresh/pipeline icon -->
+        <svg class="w-[15px] h-[15px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        Pipelines
+      </a>
+
+      <a href="/ingest" class="{% if page == 'ingest' %}nav-item-active{% else %}nav-item{% endif %}">
+        <!-- Download/ingest icon -->
+        <svg class="w-[15px] h-[15px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+        Data Ingestion
+      </a>
+
+      <p class="nav-section">AI / ML</p>
+
+      <a href="/ai" class="{% if page == 'ai' %}nav-item-active{% else %}nav-item{% endif %}">
+        <!-- Sparkle/AI icon -->
+        <svg class="w-[15px] h-[15px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/></svg>
+        AI Query
+      </a>
+
+      <a href="/anomalies" class="{% if page == 'anomalies' %}nav-item-active{% else %}nav-item{% endif %}">
+        <!-- Warning icon -->
+        <svg class="w-[15px] h-[15px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+        Anomaly Detection
+      </a>
+
+      <p class="nav-section">Tools</p>
+
+      <a href="/notebooks" class="{% if page == 'notebooks' %}nav-item-active{% else %}nav-item{% endif %}">
+        <!-- Book icon -->
+        <svg class="w-[15px] h-[15px] shrink-0" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg>
+        Notebooks
+      </a>
+
+    </nav>
+
+    <!-- Sidebar footer -->
+    <div class="px-4 py-3 border-t border-white/[0.07] text-[11px] text-gray-600 shrink-0">
+      v0.1.0 &middot; <a href="https://lakeoftears.ai" target="_blank" class="hover:text-gray-400 transition-colors">lakeoftears.ai</a>
+    </div>
+
+  </aside>
+
+  <!-- ── Main area ────────────────────────────────────────────────────────── -->
+  <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
+
+    <!-- Top bar -->
+    <header class="h-[48px] bg-[#1a1a1a] border-b border-white/[0.07] flex items-center justify-between px-5 shrink-0 gap-4">
+      <div class="flex items-center gap-2 flex-1 max-w-md">
+        <svg class="w-3.5 h-3.5 text-gray-600 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        <input type="text" placeholder="Search data, notebooks, pipelines…" class="bg-transparent text-[13px] text-gray-400 placeholder-gray-600 focus:outline-none w-full"/>
+      </div>
+      <div class="flex items-center gap-4 text-[13px] text-gray-500 shrink-0">
+        <a href="https://lakeoftears.ai" target="_blank" class="hover:text-gray-300 transition-colors hidden sm:block">Docs</a>
+        <a href="https://github.com/hubbertj/lake-of-tears" target="_blank" class="hover:text-gray-300 transition-colors hidden sm:block">GitHub</a>
+        <div class="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white select-none cursor-default">J</div>
+      </div>
+    </header>
+
+    <!-- Page content -->
+    <main class="flex-1 overflow-auto {% block content_class %}p-6{% endblock %}">
+      {% block content %}{% endblock %}
+    </main>
+
+  </div>
 
 </body>
 </html>

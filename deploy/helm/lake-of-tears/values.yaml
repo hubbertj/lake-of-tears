@@ -40,11 +40,10 @@ minio:
 
   persistence:
     size: 200Gi
+    accessMode: ReadWriteOnce
 
   service:
-    # S3 API port
     apiPort: 9000
-    # MinIO console (web UI) port
     consolePort: 9001
 
   resources:
@@ -56,11 +55,18 @@ minio:
       memory: "4Gi"
 
 # ---------------------------------------------------------------------------
-# Lake UI — custom FastAPI + Tailwind web dashboard
+# Lake UI — FastAPI + Tailwind unified shell
 # ---------------------------------------------------------------------------
 lakeui:
-  image: lake-of-tears-ui:latest
-  imagePullPolicy: IfNotPresent
+  image:
+    repository: lake-of-tears-ui
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # URL users can reach the MinIO console — set to your ingress minioConsoleHost
+  # e.g. https://minio.example.com   (Kubernetes)
+  #      http://localhost:9001        (local Docker Compose)
+  minioConsoleUrl: ""
 
   service:
     port: 3000
@@ -78,8 +84,8 @@ lakeui:
 # ---------------------------------------------------------------------------
 jupyter:
   image:
-    repository: jupyter/scipy-notebook
-    tag: python-3.11
+    repository: jupyter/datascience-notebook
+    tag: latest
     pullPolicy: IfNotPresent
 
   # Access token for JupyterLab — REQUIRED
@@ -108,7 +114,7 @@ superset:
     tag: "4.0.2"
     pullPolicy: IfNotPresent
 
-  # Flask secret key — auto-generated if left empty
+  # Flask secret key — REQUIRED
   secretKey: ""
 
   # Admin account password — REQUIRED
@@ -137,7 +143,7 @@ airflow:
     tag: 2.10.3-python3.11
     pullPolicy: IfNotPresent
 
-  # Flask secret key — auto-generated if left empty
+  # Flask secret key — REQUIRED
   secretKey: ""
 
   # Admin account password — REQUIRED
@@ -149,7 +155,7 @@ airflow:
   persistence:
     size: 2Gi
 
-  # Additional pip packages installed at container startup
+  # Additional pip packages installed at container startup via _PIP_ADDITIONAL_REQUIREMENTS
   extraPipPackages:
     - duckdb
     - boto3
@@ -167,22 +173,20 @@ airflow:
       memory: "4Gi"
 
 # ---------------------------------------------------------------------------
-# TrueNAS integration (optional)
+# Data source credentials (all optional — omit sources you don't use)
 # ---------------------------------------------------------------------------
-truenas:
-  # TrueNAS host IP or hostname
-  host: ""
-  # TrueNAS API Bearer token
-  apiKey: ""
+stripe:
+  secretKey: ""
 
-# ---------------------------------------------------------------------------
-# Jellyfin integration (optional)
-# ---------------------------------------------------------------------------
-jellyfin:
-  # Jellyfin base URL, e.g. http://192.168.1.10:8096
-  url: ""
-  # Jellyfin API key
-  apiKey: ""
+shopify:
+  storeDomain: ""
+  accessToken: ""
+
+hubspot:
+  accessToken: ""
+
+postgres:
+  dsn: ""
 
 # ---------------------------------------------------------------------------
 # Google Gemini AI
@@ -198,29 +202,26 @@ ingress:
   enabled: true
   className: nginx
 
-  # TLS configuration — list of { secretName, hosts } objects
+  # Primary hostname — serves Lake UI, Notebooks (/jupyter/), Pipelines (/airflow/),
+  # Dashboards (/superset/)
+  host: lake.example.com
+
+  # MinIO console is exposed on its own subdomain.
+  # Path-based proxying of the MinIO console SPA is unreliable; set lakeui.minioConsoleUrl
+  # to this value so the Storage page links users to the right URL.
+  minioConsoleHost: minio.example.com
+
+  # MinIO S3 API hostname (for external S3 clients and tools like DBeaver)
+  minioApiHost: minio-api.example.com
+
+  # Additional annotations merged onto every Ingress resource
+  annotations: {}
+
+  # TLS — list of { secretName, hosts } objects
   tls: []
   # Example:
   #   - secretName: lake-of-tears-tls
   #     hosts:
   #       - lake.example.com
-  #       - jupyter.example.com
-
-  hosts:
-    lakeui:
-      host: lake.example.com
-      path: /
-    jupyter:
-      host: jupyter.example.com
-      path: /
-    superset:
-      host: superset.example.com
-      path: /
-    airflow:
-      host: airflow.example.com
-      path: /
-    minio:
-      consoleHost: minio.example.com
-      consolePath: /
-      apiHost: minio-api.example.com
-      apiPath: /
+  #       - minio.example.com
+  #       - minio-api.example.com

@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install ruff
+        run: pip install ruff==0.5.7
+
+      - name: Check linting
+        run: ruff check .
+
+      - name: Check formatting
+        run: ruff format --check .
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install bandit
+        run: pip install bandit[toml]==1.7.9
+
+      - name: Run bandit
+        run: bandit -r pipeline/ ui/ -ll -c pyproject.toml
+
+  docker-build:
+    name: Docker Build (UI)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build UI image
+        uses: docker/build-push-action@v6
+        with:
+          context: ui/
+          push: false
+          tags: lake-of-tears-ui:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  helm-lint:
+    name: Helm Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: "3.15.0"
+
+      - name: Lint Helm chart
+        run: helm lint deploy/helm/lake-of-tears
+
+  terraform-validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.0"
+
+      - name: Validate foundation module
+        run: |
+          terraform -chdir=deploy/terraform/foundation init -backend=false
+          terraform -chdir=deploy/terraform/foundation validate
+
+      - name: Validate services module
+        run: |
+          terraform -chdir=deploy/terraform/services init -backend=false
+          terraform -chdir=deploy/terraform/services validate

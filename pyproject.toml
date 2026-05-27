@@ -1,0 +1,19 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = ["deploy/terraform/"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"pipeline/dags/*.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.bandit]
+exclude_dirs = ["deploy/terraform/", ".venv/"]
+skips = ["B101"]

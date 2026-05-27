@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Data Ingestion — Lake of Tears{% endblock %}
+{% block content %}
+
+<div class="max-w-5xl mx-auto space-y-6">
+
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-xl font-semibold text-gray-100">Data Ingestion</h1>
+      <p class="text-sm text-gray-500 mt-1">Configured data sources and their last sync status.</p>
+    </div>
+    <a href="/pipelines" class="btn-primary text-sm">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+      Open Airflow
+    </a>
+  </div>
+
+  {% if stats.ok %}
+  <div class="card overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-800 text-left">
+          <th class="px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Source</th>
+          <th class="px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">S3 Path</th>
+          <th class="px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right">Last Sync</th>
+          <th class="px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right">Status</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-800/60">
+        {% for src in stats.sources %}
+        <tr class="hover:bg-white/[0.02] transition-colors">
+          <td class="px-5 py-4">
+            <div class="flex items-center gap-2.5">
+              <span class="w-2 h-2 rounded-full shrink-0
+                {% if src.status == 'green' %}bg-emerald-400
+                {% elif src.status == 'yellow' %}bg-yellow-400
+                {% else %}bg-gray-700{% endif %}"></span>
+              <span class="font-medium text-gray-200">{{ src.label }}</span>
+            </div>
+          </td>
+          <td class="px-5 py-4 font-mono text-xs text-gray-500">raw/{{ src.key }}/</td>
+          <td class="px-5 py-4 text-gray-500 text-right text-xs">{{ src.last_modified_str }}</td>
+          <td class="px-5 py-4 text-right">
+            {% if src.status == 'green' %}
+              <span class="badge-green">Synced</span>
+            {% elif src.status == 'yellow' %}
+              <span class="badge-yellow">Stale</span>
+            {% else %}
+              <span class="badge-red">No data</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card p-5">
+    <h2 class="text-sm font-semibold text-gray-300 mb-3">Adding a new source</h2>
+    <ol class="space-y-1.5 text-sm text-gray-500 list-decimal list-inside">
+      <li>Create <code class="text-xs bg-gray-800 px-1 rounded text-gray-400">pipeline/ingest/my_source.py</code> — fetch, normalize, write via <code class="text-xs bg-gray-800 px-1 rounded text-gray-400">StorageWriter</code></li>
+      <li>Create <code class="text-xs bg-gray-800 px-1 rounded text-gray-400">pipeline/dags/ingest_my_source_dag.py</code> — Airflow schedule</li>
+      <li>Add source name to <code class="text-xs bg-gray-800 px-1 rounded text-gray-400">SOURCES</code> in <code class="text-xs bg-gray-800 px-1 rounded text-gray-400">pipeline/embed/embed_sources.py</code></li>
+      <li>Add <code class="text-xs bg-gray-800 px-1 rounded text-gray-400">_text_my_source(row)</code> for embedding text representation</li>
+    </ol>
+  </div>
+
+  {% else %}
+  <div class="card p-8 text-center">
+    <p class="text-gray-500 text-sm">Could not connect to MinIO.</p>
+    <p class="text-gray-600 text-xs mt-1 font-mono">{{ stats.error }}</p>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

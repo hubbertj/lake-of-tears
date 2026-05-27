@@ -1,161 +1,209 @@
 {{- if .Values.ingress.enabled }}
+
+{{- $fullName := include "lake-of-tears.fullname" . }}
+{{- $labels   := include "lake-of-tears.labels"   . }}
+
+# ── Lake UI + embedded services (path-based, single host) ──────────────────
+#
+# /           → Lake UI shell
+# /jupyter/   → JupyterLab  (base_url=/jupyter/ — no path rewrite needed)
+# /superset/  → Superset    (APPLICATION_PREFIX_PATH=/superset — no rewrite)
+# /airflow/   → Airflow     (BASE_URL has /airflow/ prefix; nginx strips it)
+
 ---
-# Lake UI
+# Lake UI (root path — must be listed last so more-specific paths take priority)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "lake-of-tears.fullname" . }}-lakeui
+  name: {{ $fullName }}-lakeui
   labels:
-    {{- include "lake-of-tears.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+    {{- $labels | nindent 4 }}
   annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "512m"
+    {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
 spec:
-  {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
-  {{- end }}
   {{- if .Values.ingress.tls }}
   tls:
     {{- toYaml .Values.ingress.tls | nindent 4 }}
   {{- end }}
   rules:
-    - host: {{ .Values.ingress.hosts.lakeui }}
+    - host: {{ .Values.ingress.host }}
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: {{ include "lake-of-tears.fullname" . }}-lakeui
+                name: {{ $fullName }}-lakeui
                 port:
                   name: http
 
 ---
-# Jupyter Lab
+# JupyterLab — served at /jupyter/ (no rewrite; Jupyter handles its own base_url)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "lake-of-tears.fullname" . }}-jupyter
+  name: {{ $fullName }}-jupyter
   labels:
-    {{- include "lake-of-tears.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+    {{- $labels | nindent 4 }}
   annotations:
+    # Long timeout + WebSocket upgrade for notebook kernels
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+    {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
 spec:
-  {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
-  {{- end }}
   {{- if .Values.ingress.tls }}
   tls:
     {{- toYaml .Values.ingress.tls | nindent 4 }}
   {{- end }}
   rules:
-    - host: {{ .Values.ingress.hosts.jupyter }}
+    - host: {{ .Values.ingress.host }}
       http:
         paths:
-          - path: /
+          - path: /jupyter/
             pathType: Prefix
             backend:
               service:
-                name: {{ include "lake-of-tears.fullname" . }}-jupyter
+                name: {{ $fullName }}-jupyter
                 port:
                   name: http
 
 ---
-# Apache Superset
+# Apache Superset — served at /superset/ (no rewrite; Superset handles APPLICATION_PREFIX_PATH)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "lake-of-tears.fullname" . }}-superset
+  name: {{ $fullName }}-superset
   labels:
-    {{- include "lake-of-tears.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+    {{- $labels | nindent 4 }}
   annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
 spec:
-  {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
-  {{- end }}
   {{- if .Values.ingress.tls }}
   tls:
     {{- toYaml .Values.ingress.tls | nindent 4 }}
   {{- end }}
   rules:
-    - host: {{ .Values.ingress.hosts.superset }}
+    - host: {{ .Values.ingress.host }}
       http:
         paths:
-          - path: /
+          - path: /superset/
             pathType: Prefix
             backend:
               service:
-                name: {{ include "lake-of-tears.fullname" . }}-superset
+                name: {{ $fullName }}-superset
                 port:
                   name: http
 
 ---
-# Apache Airflow
+# Apache Airflow — strip /airflow/ prefix before forwarding to the pod
+# Airflow is configured with BASE_URL=http://<host>/airflow/ so it generates
+# links with that prefix; nginx must strip it before the pod sees the request.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "lake-of-tears.fullname" . }}-airflow
+  name: {{ $fullName }}-airflow
   labels:
-    {{- include "lake-of-tears.labels" . | nindent 4 }}
-  {{- with .Values.ingress.annotations }}
+    {{- $labels | nindent 4 }}
   annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
-  {{- end }}
+    {{- end }}
 spec:
-  {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
-  {{- end }}
   {{- if .Values.ingress.tls }}
   tls:
     {{- toYaml .Values.ingress.tls | nindent 4 }}
   {{- end }}
   rules:
-    - host: {{ .Values.ingress.hosts.airflow }}
+    - host: {{ .Values.ingress.host }}
       http:
         paths:
-          - path: /
-            pathType: Prefix
+          - path: /airflow(/|$)(.*)
+            pathType: ImplementationSpecific
             backend:
               service:
-                name: {{ include "lake-of-tears.fullname" . }}-airflow
+                name: {{ $fullName }}-airflow
                 port:
                   name: http
 
 ---
-# MinIO Console
+# MinIO Console — own subdomain (SPA cannot be reliably path-proxied)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: {{ include "lake-of-tears.fullname" . }}-minio
+  name: {{ $fullName }}-minio-console
   labels:
-    {{- include "lake-of-tears.labels" . | nindent 4 }}
+    {{- $labels | nindent 4 }}
   {{- with .Values.ingress.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  {{- if .Values.ingress.className }}
   ingressClassName: {{ .Values.ingress.className }}
-  {{- end }}
   {{- if .Values.ingress.tls }}
   tls:
     {{- toYaml .Values.ingress.tls | nindent 4 }}
   {{- end }}
   rules:
-    - host: {{ .Values.ingress.hosts.minio }}
+    - host: {{ .Values.ingress.minioConsoleHost }}
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: minio
+                name: {{ $fullName }}-minio
                 port:
                   name: console
+
+---
+# MinIO S3 API — own subdomain for external S3 clients
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-minio-api
+  labels:
+    {{- $labels | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.minioApiHost }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}-minio
+                port:
+                  name: api
+
 {{- end }}

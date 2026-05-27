@@ -1,0 +1,15 @@
+---
+# ConfigMap holding the Superset Python config.
+# Mounted at /app/pythonpath/superset_config.py inside the container.
+# APPLICATION_PREFIX_PATH tells Superset to serve under /superset/,
+# matching the nginx Ingress path and the iframe src in the Lake UI.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lake-of-tears.fullname" . }}-superset-config
+  labels:
+    {{- include "lake-of-tears.labels" . | nindent 4 }}
+    app.kubernetes.io/component: superset
+data:
+  superset_config.py: |
+    APPLICATION_PREFIX_PATH = "/superset"

@@ -1,17 +1,11 @@
 ---
-# =============================================================================
-# Lake UI — Deployment + Service
-# Custom FastAPI + Tailwind web dashboard for Lake of Tears
-# =============================================================================
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "lake-of-tears.fullname" . }}-lakeui
   labels:
-    app.kubernetes.io/name: {{ include "lake-of-tears.name" . }}
+    {{- include "lake-of-tears.labels" . | nindent 4 }}
     app.kubernetes.io/component: lakeui
-    app.kubernetes.io/instance: {{ .Release.Name }}
-    app.kubernetes.io/managed-by: {{ .Release.Service }}
 spec:
   replicas: 1
   selector:
@@ -28,60 +22,59 @@ spec:
     spec:
       containers:
         - name: lakeui
-          image: {{ .Values.lakeui.image }}
-          imagePullPolicy: {{ .Values.lakeui.imagePullPolicy | default "IfNotPresent" }}
+          image: {{ .Values.lakeui.image.repository }}:{{ .Values.lakeui.image.tag }}
+          imagePullPolicy: {{ .Values.lakeui.image.pullPolicy | default "IfNotPresent" }}
           ports:
             - name: http
               containerPort: 3000
               protocol: TCP
           env:
             - name: MINIO_ENDPOINT
-              valueFrom:
-                secretKeyRef:
-                  name: lakeui-secret
-                  key: MINIO_ENDPOINT
+              value: "{{ include "lake-of-tears.fullname" . }}-minio:{{ .Values.minio.service.apiPort }}"
             - name: MINIO_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: lakeui-secret
-                  key: MINIO_ACCESS_KEY
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: MINIO_ROOT_USER
             - name: MINIO_SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: lakeui-secret
-                  key: MINIO_SECRET_KEY
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: MINIO_ROOT_PASSWORD
+            - name: MINIO_BUCKET
+              value: datalake
             - name: GEMINI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: lakeui-secret
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
                   key: GEMINI_API_KEY
+            - name: MINIO_CONSOLE_URL
+              value: {{ .Values.lakeui.minioConsoleUrl | default (printf "https://%s" .Values.ingress.minioConsoleHost) | quote }}
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /health
               port: http
             initialDelaySeconds: 15
             periodSeconds: 20
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /health
               port: http
             initialDelaySeconds: 5
             periodSeconds: 10
             failureThreshold: 3
           resources:
             {{- toYaml .Values.lakeui.resources | nindent 12 }}
-      restartPolicy: Always
+
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "lake-of-tears.fullname" . }}-lakeui
   labels:
-    app.kubernetes.io/name: {{ include "lake-of-tears.name" . }}
+    {{- include "lake-of-tears.labels" . | nindent 4 }}
     app.kubernetes.io/component: lakeui
-    app.kubernetes.io/instance: {{ .Release.Name }}
-    app.kubernetes.io/managed-by: {{ .Release.Service }}
 spec:
   type: ClusterIP
   selector:
