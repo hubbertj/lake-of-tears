@@ -54,7 +54,7 @@
 ## Quick Start (Docker Compose)
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/lake-of-tears
+git clone https://github.com/hubbertj/lake-of-tears
 cd lake-of-tears
 cp .env.example .env
 # Edit .env with your credentials
@@ -113,25 +113,189 @@ All configuration is driven by environment variables. Copy `.env.example` to `.e
 
 ## Data Sources
 
-Lake of Tears ships with four built-in ingest pipelines. All data is written as Parquet files partitioned by `year=/month=/day=` under `s3://datalake/raw/<source>/`.
+Lake of Tears is built around the data that a home server actually generates. Every pipeline writes Parquet files partitioned by `year=/month=/day=` to `s3://datalake/raw/<source>/`, queryable immediately with DuckDB.
 
-| Source | Script | Schedule | Output path |
-|--------|--------|----------|-------------|
-| **TrueNAS** | `pipeline/ingest/truenas.py` | Hourly | `raw/truenas/` |
-| **TrueNAS Logs** | `pipeline/ingest/truenas_logs.py` | Daily 00:00 | `raw/truenas_logs/` |
-| **Jellyfin** | `pipeline/ingest/jellyfin.py` | Every 6 h | `raw/jellyfin/` |
-| **Open-Meteo** | `pipeline/ingest/weather.py` | Daily 06:00 | `raw/weather/` |
-| **Alexa** | `pipeline/ingest/alexa.py` | On-demand | `raw/alexa/` |
+| Source | Script | Schedule | Output path | Requires |
+|--------|--------|----------|-------------|----------|
+| **TrueNAS** | `pipeline/ingest/truenas.py` | Hourly | `raw/truenas/` | `TRUENAS_HOST`, `TRUENAS_API_KEY` |
+| **TrueNAS Logs** | `pipeline/ingest/truenas_logs.py` | Daily 00:00 | `raw/truenas_logs/` | same as above |
+| **Jellyfin** | `pipeline/ingest/jellyfin.py` | Every 6 h | `raw/jellyfin/` | `JELLYFIN_URL`, `JELLYFIN_API_KEY` |
+| **Open-Meteo** | `pipeline/ingest/weather.py` | Daily 06:00 | `raw/weather/` | none (free API) |
+| **Alexa** | `pipeline/ingest/alexa.py` | On-demand | `raw/alexa/` | export file |
 
-**TrueNAS** — pulls ZFS pool statistics and per-disk SMART metrics from the TrueNAS REST API. Requires `TRUENAS_HOST` and `TRUENAS_API_KEY`.
+---
 
-**TrueNAS Logs** — collects journal WARNING+ entries and active alerts. Requires the same credentials as the TrueNAS source.
+### TrueNAS — Home NAS Health Monitoring
 
-**Jellyfin** — fetches media play history (title, user, duration, timestamp). Requires `JELLYFIN_URL` and `JELLYFIN_API_KEY`.
+TrueNAS SCALE is a common choice for home network-attached storage: a box in a closet or rack running ZFS, storing family photos, backups, and media. The TrueNAS pipeline treats that box as a data source — not just a drive to map.
 
-**Open-Meteo** — downloads hourly weather forecasts for a configurable location using the free Open-Meteo API. No API key required.
+**What it collects (hourly):**
 
-**Alexa** — parses an Amazon Alexa data export (JSON). Run on-demand after dropping an export into the configured input directory.
+`pipeline/ingest/truenas.py` calls the TrueNAS REST API (`/api/v2.0/pool` and `/api/v2.0/disk`) and writes two datasets:
+
+`raw/truenas/` — pool-level health snapshot per hour:
+
+| Column | Type | Example |
+|--------|------|---------|
+| `pool_name` | string | `"WD-RAID-Z-18TB"` |
+| `status` | string | `"ONLINE"` |
+| `size_bytes` | int64 | `19318669312` |
+| `allocated_bytes` | int64 | `11274289152` |
+| `free_bytes` | int64 | `8044380160` |
+| `fragmentation_pct` | float | `3.0` |
+| `scan_state` | string | `"finished"` |
+| `scan_errors` | int64 | `0` |
+| `timestamp` | timestamp | `2025-05-27 06:00:00` |
+
+`raw/truenas_disks/` — per-disk SMART attributes snapshot:
+
+| Column | Type | Example |
+|--------|------|---------|
+| `disk_name` | string | `"sda"` |
+| `model` | string | `"WDC WD80EFZX"` |
+| `serial` | string | `"WD-CA1XXXXX"` |
+| `temperature_c` | float | `34.0` |
+| `reallocated_sectors` | int64 | `0` |
+| `pending_sectors` | int64 | `0` |
+| `uncorrectable_errors` | int64 | `0` |
+| `power_on_hours` | int64 | `14832` |
+| `timestamp` | timestamp | `2025-05-27 06:00:00` |
+
+`raw/truenas_logs/` (daily) — WARNING and above journal entries plus any active TrueNAS alerts. Useful for catching scrub errors, degraded vdevs, or failed drives before they become data loss.
+
+**Example queries:**
+
+```sql
+-- How full is my pool this week?
+SELECT
+    date_trunc('day', timestamp) AS day,
+    round(max(allocated_bytes) / 1e9, 1) AS used_gb,
+    round(max(size_bytes) / 1e9, 1) AS total_gb,
+    round(max(allocated_bytes) * 100.0 / max(size_bytes), 1) AS pct_used
+FROM read_parquet('s3://datalake/raw/truenas/**/*.parquet')
+WHERE timestamp >= current_date - INTERVAL 7 DAYS
+GROUP BY 1 ORDER BY 1;
+```
+
+```sql
+-- Which disks are running hottest?
+SELECT disk_name, model, round(avg(temperature_c), 1) AS avg_temp_c, max(temperature_c) AS peak_temp_c
+FROM read_parquet('s3://datalake/raw/truenas_disks/**/*.parquet')
+WHERE timestamp >= current_date - INTERVAL 30 DAYS
+GROUP BY 1, 2 ORDER BY avg_temp_c DESC;
+```
+
+```sql
+-- Any reallocated sectors appearing? (early sign of drive failure)
+SELECT timestamp, disk_name, model, reallocated_sectors, pending_sectors
+FROM read_parquet('s3://datalake/raw/truenas_disks/**/*.parquet')
+WHERE reallocated_sectors > 0 OR pending_sectors > 0
+ORDER BY timestamp DESC;
+```
+
+```sql
+-- Recent warnings and alerts
+SELECT timestamp, message
+FROM read_parquet('s3://datalake/raw/truenas_logs/**/*.parquet')
+WHERE timestamp >= current_date - INTERVAL 7 DAYS
+ORDER BY timestamp DESC LIMIT 50;
+```
+
+---
+
+### Jellyfin — Personal Media Server Analytics
+
+Jellyfin is a free, self-hosted media server — the home alternative to Netflix. You rip your Blu-rays, rip your CDs, drop your downloads in a folder, and Jellyfin streams them to your TV, phone, or browser. The Jellyfin pipeline captures your actual watch and listen history from your own server, not a corporation's servers.
+
+**What it collects (every 6 hours):**
+
+`pipeline/ingest/jellyfin.py` calls the Jellyfin REST API (`/Users/{userId}/Items?Recursive=true&Fields=...`) and writes:
+
+`raw/jellyfin/` — one row per play event:
+
+| Column | Type | Example |
+|--------|------|---------|
+| `item_id` | string | `"a3f9b2c1..."` |
+| `title` | string | `"Oppenheimer"` |
+| `series_name` | string | `"The Bear"` (null for movies) |
+| `season_episode` | string | `"S02E05"` (null for movies) |
+| `media_type` | string | `"Movie"` / `"Episode"` / `"Audio"` |
+| `genres` | string | `"Drama, History, Thriller"` |
+| `year` | int32 | `2023` |
+| `duration_min` | float | `181.0` |
+| `play_count` | int32 | `2` |
+| `last_played` | timestamp | `2025-05-26 21:14:00` |
+| `user_name` | string | `"jay"` |
+| `rating` | float | `8.9` (community rating) |
+
+**Example queries:**
+
+```sql
+-- What have I watched most this month?
+SELECT title, media_type, sum(play_count) AS plays, round(sum(play_count * duration_min) / 60, 1) AS hours
+FROM read_parquet('s3://datalake/raw/jellyfin/**/*.parquet')
+WHERE last_played >= date_trunc('month', current_date)
+GROUP BY 1, 2 ORDER BY plays DESC LIMIT 20;
+```
+
+```sql
+-- How many hours of TV vs movies have I watched this year?
+SELECT
+    media_type,
+    count(distinct item_id) AS titles,
+    sum(play_count) AS total_plays,
+    round(sum(play_count * duration_min) / 60, 1) AS total_hours
+FROM read_parquet('s3://datalake/raw/jellyfin/**/*.parquet')
+WHERE last_played >= date_trunc('year', current_date)
+GROUP BY 1;
+```
+
+```sql
+-- My watch activity by day of week (am I a weekend binge-watcher?)
+SELECT
+    dayname(last_played) AS day_of_week,
+    count(*) AS plays,
+    round(sum(duration_min) / 60, 1) AS hours
+FROM read_parquet('s3://datalake/raw/jellyfin/**/*.parquet')
+GROUP BY 1 ORDER BY count(*) DESC;
+```
+
+```sql
+-- Which genres do I actually watch vs what I have?
+SELECT unnest(string_split(genres, ', ')) AS genre, count(*) AS plays
+FROM read_parquet('s3://datalake/raw/jellyfin/**/*.parquet')
+WHERE play_count > 0
+GROUP BY 1 ORDER BY plays DESC LIMIT 15;
+```
+
+```sql
+-- Combine with weather: do I watch more when it's cold?
+SELECT
+    round(w.temperature_2m_max, 0) AS temp_c,
+    count(j.item_id) AS plays
+FROM read_parquet('s3://datalake/raw/jellyfin/**/*.parquet') j
+JOIN read_parquet('s3://datalake/raw/weather/**/*.parquet') w
+  ON date_trunc('day', j.last_played) = w.date
+GROUP BY 1 ORDER BY 1;
+```
+
+---
+
+### Open-Meteo — Local Weather
+
+Downloads hourly forecasts for your location from [Open-Meteo](https://open-meteo.com) — no API key required. Columns include temperature, precipitation, wind speed, UV index, and cloud cover. Primarily useful as a join dimension (weather vs. energy use, weather vs. watch habits, etc.).
+
+Set your location in `.env`:
+```
+WEATHER_LAT=40.7934
+WEATHER_LON=-77.8600
+```
+
+---
+
+### Alexa — Voice Assistant History
+
+Parses an Amazon Alexa data export (request yours at [privacy.amazon.com](https://privacy.amazon.com)). Drop the export JSON files into the configured input directory and run the pipeline on-demand. Columns include utterance text, device name, timestamp, and intent — useful for seeing patterns in how you actually use voice commands at home.
 
 ---
 
@@ -191,7 +355,7 @@ Contributions are welcome. Please open an issue before starting significant work
 2. Keep pull requests focused — one feature or fix per PR.
 3. Include a brief description of what changed and why.
 
-[Open an issue](https://github.com/YOUR_USERNAME/lake-of-tears/issues) · [Browse open issues](https://github.com/YOUR_USERNAME/lake-of-tears/issues)
+[Open an issue](https://github.com/hubbertj/lake-of-tears/issues) · [Browse open issues](https://github.com/hubbertj/lake-of-tears/issues)
 
 ---
 
