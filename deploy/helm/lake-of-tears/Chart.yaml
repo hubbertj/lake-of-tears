@@ -1,0 +1,20 @@
+apiVersion: v2
+name: lake-of-tears
+description: Self-hosted datalakehouse — MinIO CE, DuckDB, Airflow, Jupyter, Superset, Lake UI
+type: application
+version: 0.2.0
+appVersion: "1.0.0"
+keywords:
+  - datalakehouse
+  - minio
+  - duckdb
+  - jupyter
+  - superset
+  - airflow
+  - gemini
+  - rag
+home: https://github.com/YOUR_USERNAME/lake-of-tears
+sources:
+  - https://github.com/YOUR_USERNAME/lake-of-tears
+maintainers:
+  - name: lake-of-tears contributors

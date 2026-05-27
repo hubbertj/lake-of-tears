@@ -1,0 +1,127 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lake-of-tears.fullname" . }}-superset
+  labels:
+    {{- include "lake-of-tears.labels" . | nindent 4 }}
+    app.kubernetes.io/component: superset
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "lake-of-tears.name" . }}
+      app.kubernetes.io/component: superset
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "lake-of-tears.name" . }}
+        app.kubernetes.io/component: superset
+    spec:
+      containers:
+        - name: superset
+          image: {{ .Values.superset.image }}
+          env:
+            - name: SUPERSET_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: SUPERSET_SECRET_KEY
+          ports:
+            - name: http
+              containerPort: {{ .Values.superset.service.port }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 30
+          volumeMounts:
+            - name: superset-home
+              mountPath: /app/superset_home
+          resources:
+            {{- toYaml .Values.superset.resources | nindent 12 }}
+      volumes:
+        - name: superset-home
+          persistentVolumeClaim:
+            claimName: {{ include "lake-of-tears.fullname" . }}-superset-home
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lake-of-tears.fullname" . }}-superset
+  labels:
+    {{- include "lake-of-tears.labels" . | nindent 4 }}
+    app.kubernetes.io/component: superset
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "lake-of-tears.name" . }}
+    app.kubernetes.io/component: superset
+  ports:
+    - name: http
+      port: {{ .Values.superset.service.port }}
+      targetPort: http
+
+---
+# Helm post-install hook — initializes the Superset DB and creates admin user
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "lake-of-tears.fullname" . }}-superset-init
+  labels:
+    {{- include "lake-of-tears.labels" . | nindent 4 }}
+    app.kubernetes.io/component: superset-init
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "2"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      initContainers:
+        - name: wait-for-superset
+          image: busybox
+          command:
+            - sh
+            - -c
+            - |
+              until wget -qO- http://{{ include "lake-of-tears.fullname" . }}-superset:{{ .Values.superset.service.port }}/health; do
+                echo "waiting for superset..."; sleep 10
+              done
+      containers:
+        - name: superset-init
+          image: {{ .Values.superset.image }}
+          env:
+            - name: SUPERSET_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: SUPERSET_SECRET_KEY
+            - name: SUPERSET_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: SUPERSET_ADMIN_PASSWORD
+          command:
+            - sh
+            - -c
+            - |
+              superset db upgrade &&
+              superset fab create-admin \
+                --username admin \
+                --firstname Admin \
+                --lastname User \
+                --email admin@localhost \
+                --password $SUPERSET_ADMIN_PASSWORD || true &&
+              echo "Superset initialized."
+          volumeMounts:
+            - name: superset-home
+              mountPath: /app/superset_home
+      volumes:
+        - name: superset-home
+          persistentVolumeClaim:
+            claimName: {{ include "lake-of-tears.fullname" . }}-superset-home

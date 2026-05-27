@@ -1,0 +1,44 @@
+# Credentials and secrets
+.env
+*.tfvars
+!*.tfvars.example
+
+# Terraform state
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfstate.*.backup
+.terraform.lock.hcl
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Node (if UI ever gets a build step)
+node_modules/
+.next/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data / exports
+*.parquet
+alexa-exports/
+logs/
+
+# Docker volumes (local dev)
+minio-data/
+airflow/
+notebooks/

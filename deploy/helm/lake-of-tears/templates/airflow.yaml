@@ -1,0 +1,116 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lake-of-tears.fullname" . }}-airflow
+  labels:
+    {{- include "lake-of-tears.labels" . | nindent 4 }}
+    app.kubernetes.io/component: airflow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "lake-of-tears.name" . }}
+      app.kubernetes.io/component: airflow
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "lake-of-tears.name" . }}
+        app.kubernetes.io/component: airflow
+    spec:
+      securityContext:
+        runAsUser: 0   # root required for pip installs at startup
+      containers:
+        - name: airflow
+          image: {{ .Values.airflow.image }}
+          args: ["standalone"]
+          env:
+            - name: AIRFLOW__CORE__EXECUTOR
+              value: SequentialExecutor
+            - name: AIRFLOW__CORE__LOAD_EXAMPLES
+              value: "False"
+            - name: AIRFLOW__CORE__DAGS_FOLDER
+              value: /opt/airflow/dags
+            - name: AIRFLOW__WEBSERVER__SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: AIRFLOW_SECRET_KEY
+            - name: _AIRFLOW_WWW_USER_USERNAME
+              value: admin
+            - name: _AIRFLOW_WWW_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: AIRFLOW_ADMIN_PASSWORD
+            # numpy<2 required: the target CPU lacks SSE4.2
+            - name: _PIP_ADDITIONAL_REQUIREMENTS
+              value: {{ .Values.airflow.extraPipPackages | quote }}
+            - name: MINIO_ENDPOINT
+              value: "minio:{{ .Values.minio.service.apiPort }}"
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: MINIO_ROOT_PASSWORD
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: GEMINI_API_KEY
+            - name: TRUENAS_HOST
+              value: {{ .Values.truenas.host | quote }}
+            - name: TRUENAS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: TRUENAS_API_KEY
+            - name: JELLYFIN_URL
+              value: "http://{{ .Values.truenas.host }}:8096"
+            - name: JELLYFIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: JELLYFIN_API_KEY
+          ports:
+            - name: http
+              containerPort: {{ .Values.airflow.service.port }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          volumeMounts:
+            - name: airflow-home
+              mountPath: /opt/airflow
+          resources:
+            {{- toYaml .Values.airflow.resources | nindent 12 }}
+      volumes:
+        - name: airflow-home
+          persistentVolumeClaim:
+            claimName: {{ include "lake-of-tears.fullname" . }}-airflow-home
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lake-of-tears.fullname" . }}-airflow
+  labels:
+    {{- include "lake-of-tears.labels" . | nindent 4 }}
+    app.kubernetes.io/component: airflow
+spec:
+  selector:
+    app.kubernetes.io/name: {{ include "lake-of-tears.name" . }}
+    app.kubernetes.io/component: airflow
+  ports:
+    - name: http
+      port: {{ .Values.airflow.service.port }}
+      targetPort: http

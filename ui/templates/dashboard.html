@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Lake of Tears{% endblock %}
+
+{% block content %}
+<!-- Page header -->
+<div class="mb-8">
+  <h1 class="text-2xl font-bold text-gray-100">Lake Overview</h1>
+  <p class="mt-1 text-sm text-gray-400">MinIO object store health and ingestion status at a glance.</p>
+</div>
+
+{% if not stats.ok %}
+<!-- MinIO unreachable alert -->
+<div class="card p-5 border-yellow-700 bg-yellow-900/20 mb-8 flex items-start gap-4">
+  <div class="shrink-0 mt-0.5">
+    <svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round"
+        d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+    </svg>
+  </div>
+  <div>
+    <p class="font-semibold text-yellow-300">MinIO not reachable</p>
+    <p class="mt-1 text-sm text-yellow-200/70">
+      Start the stack with <code class="font-mono bg-gray-900/60 px-1.5 py-0.5 rounded text-yellow-300">docker compose up -d</code>
+      from the project directory.
+    </p>
+    {% if stats.error %}
+    <p class="mt-2 text-xs text-yellow-200/50 font-mono break-all">{{ stats.error }}</p>
+    {% endif %}
+  </div>
+</div>
+
+{% else %}
+<!-- ─── Stat cards ─── -->
+<div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+
+  <div class="card p-5">
+    <p class="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-2">Total Objects</p>
+    <p class="text-3xl font-bold text-gray-100">{{ stats.total_objects | int }}</p>
+    <p class="mt-1 text-xs text-gray-500">across all prefixes</p>
+  </div>
+
+  <div class="card p-5">
+    <p class="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-2">Total Size</p>
+    <p class="text-3xl font-bold text-gray-100">{{ stats.total_size }}</p>
+    <p class="mt-1 text-xs text-gray-500">stored in MinIO</p>
+  </div>
+
+  <div class="card p-5">
+    <p class="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-2">Raw Objects</p>
+    <p class="text-3xl font-bold text-blue-400">{{ stats.raw_objects | int }}</p>
+    <p class="mt-1 text-xs text-gray-500">{{ stats.raw_size }} &middot; <code class="font-mono">raw/</code></p>
+  </div>
+
+  <div class="card p-5">
+    <p class="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-2">Embeddings</p>
+    <p class="text-3xl font-bold text-purple-400">{{ stats.embeddings_objects | int }}</p>
+    <p class="mt-1 text-xs text-gray-500">{{ stats.embeddings_size }} &middot; <code class="font-mono">embeddings/</code></p>
+  </div>
+
+</div>
+
+<!-- ─── Source status grid ─── -->
+<div class="mb-2 flex items-center justify-between">
+  <h2 class="text-base font-semibold text-gray-200">Ingestion Sources</h2>
+  <span class="text-xs text-gray-500">green &lt; 25 h &nbsp;&middot;&nbsp; yellow &lt; 48 h &nbsp;&middot;&nbsp; red = stale</span>
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+  {% for src in stats.sources %}
+  <div class="card p-5 flex flex-col gap-3">
+
+    <!-- Source name + dot -->
+    <div class="flex items-center justify-between">
+      <span class="font-semibold text-sm text-gray-200">{{ src.label }}</span>
+      {% if src.status == 'green' %}
+      <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow shadow-emerald-500/40 shrink-0"></span>
+      {% elif src.status == 'yellow' %}
+      <span class="w-2.5 h-2.5 rounded-full bg-yellow-400 shadow shadow-yellow-500/40 shrink-0"></span>
+      {% else %}
+      <span class="w-2.5 h-2.5 rounded-full bg-red-500 shadow shadow-red-500/40 shrink-0"></span>
+      {% endif %}
+    </div>
+
+    <!-- Last modified -->
+    <div>
+      <p class="text-xs text-gray-500 uppercase tracking-wide font-medium">Last ingestion</p>
+      <p class="mt-0.5 text-sm text-gray-300 font-mono leading-snug">{{ src.last_modified_str }}</p>
+    </div>
+
+    <!-- Badge -->
+    {% if src.status == 'green' %}
+    <span class="badge-green self-start">
+      <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3"/></svg>
+      Active
+    </span>
+    {% elif src.status == 'yellow' %}
+    <span class="badge-yellow self-start">
+      <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3"/></svg>
+      Aging
+    </span>
+    {% else %}
+    <span class="badge-red self-start">
+      <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 8 8"><circle cx="4" cy="4" r="3"/></svg>
+      Stale
+    </span>
+    {% endif %}
+
+  </div>
+  {% endfor %}
+</div>
+
+<!-- ─── Prefix breakdown ─── -->
+{% if stats.prefix_stats %}
+<div class="mt-8">
+  <h2 class="text-base font-semibold text-gray-200 mb-4">Top-Level Prefix Breakdown</h2>
+  <div class="card overflow-hidden">
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-gray-700 text-left">
+          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Prefix</th>
+          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 text-right">Objects</th>
+          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500 text-right">Size</th>
+          <th class="px-4 py-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Last Modified</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-700/50">
+        {% for prefix, info in stats.prefix_stats.items() %}
+        <tr class="hover:bg-gray-700/30 transition-colors">
+          <td class="px-4 py-3 font-mono text-blue-400">{{ prefix }}/</td>
+          <td class="px-4 py-3 text-right text-gray-300">{{ info.objects }}</td>
+          <td class="px-4 py-3 text-right text-gray-300">{{ info.size }}</td>
+          <td class="px-4 py-3 text-gray-400">{{ info.last_modified_str }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endif %}{# end stats.ok #}
+{% endblock %}

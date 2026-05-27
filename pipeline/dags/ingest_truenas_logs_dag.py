@@ -1,0 +1,16 @@
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from datetime import datetime
+
+with DAG(
+    dag_id="ingest_truenas_logs",
+    schedule="0 0 * * *",
+    start_date=datetime(2026, 1, 1),
+    catchup=False,
+    tags=["ingestion"],
+    doc_md="Pull yesterday's TrueNAS journal logs (WARNING+) and active alerts into s3://datalake/raw/truenas_logs/",
+) as dag:
+    BashOperator(
+        task_id="run",
+        bash_command="python3 /opt/airflow/datalake/jobs/pipeline/ingest_truenas_logs.py",
+    )

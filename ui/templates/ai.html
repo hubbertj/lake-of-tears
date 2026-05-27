@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}AI Query — Lake of Tears{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-gray-100">AI Query</h1>
+  <p class="mt-1 text-sm text-gray-400">Ask a natural-language question. The lake embeds it, finds similar records, and Gemini composes an answer.</p>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+
+  <!-- ─── Main panel ─── -->
+  <div class="lg:col-span-3 flex flex-col gap-5">
+
+    <!-- Question form -->
+    <form method="POST" action="/ai" id="aiForm">
+      <div class="card p-4 flex flex-col gap-3">
+        <label for="question" class="text-xs font-semibold uppercase tracking-widest text-gray-500">Your Question</label>
+        <textarea
+          id="question"
+          name="question"
+          rows="3"
+          class="input-dark text-sm resize-none leading-relaxed"
+          placeholder="What TrueNAS alerts have fired recently?"
+        >{{ question }}</textarea>
+
+        <div class="flex items-center gap-3">
+          <button type="submit" class="btn-primary" id="askBtn">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round"
+                d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+            </svg>
+            Ask the Lake
+          </button>
+          <span id="loadingHint" class="hidden text-xs text-gray-500 animate-pulse">Embedding &amp; querying…</span>
+        </div>
+      </div>
+    </form>
+
+    <!-- Error -->
+    {% if result and not result.ok %}
+    <div class="card p-4 border-red-800 bg-red-900/20 flex items-start gap-3">
+      <svg class="w-5 h-5 text-red-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+      </svg>
+      <div>
+        <p class="font-semibold text-red-300 text-sm">Error</p>
+        <pre class="mt-1 text-xs text-red-300/80 whitespace-pre-wrap break-all font-mono">{{ result.error }}</pre>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Answer -->
+    {% if result and result.ok %}
+    <div class="card p-6 border-blue-800/50 bg-blue-950/20">
+      <div class="flex items-center gap-2 mb-4">
+        <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+        </svg>
+        <span class="text-sm font-semibold text-blue-300">Gemini Answer</span>
+      </div>
+
+      <div class="prose prose-sm prose-invert max-w-none text-gray-200 leading-relaxed text-sm whitespace-pre-wrap">{{ result.answer }}</div>
+    </div>
+
+    <!-- Source snippets (collapsible) -->
+    {% if result.snippets %}
+    <details class="card group">
+      <summary class="px-4 py-3 cursor-pointer flex items-center justify-between select-none
+                      text-xs font-semibold uppercase tracking-widest text-gray-500
+                      hover:text-gray-300 transition-colors list-none">
+        <span class="flex items-center gap-2">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+          </svg>
+          Source Snippets ({{ result.snippets | length }})
+        </span>
+        <svg class="w-4 h-4 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </summary>
+
+      <div class="px-4 pb-4 flex flex-col gap-3 border-t border-gray-700 pt-4">
+        {% for snippet in result.snippets %}
+        <div class="bg-gray-900/60 rounded-lg border border-gray-700/50 p-3">
+          <div class="flex items-center justify-between mb-2 gap-2 flex-wrap">
+            <span class="font-mono text-xs text-blue-400 font-semibold">{{ snippet.source }}</span>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-gray-600 font-mono">{{ snippet.ingested_at }}</span>
+              <span class="text-xs px-1.5 py-0.5 rounded bg-gray-800 border border-gray-700 font-mono
+                           {% if snippet.score >= 0.8 %}text-emerald-400{% elif snippet.score >= 0.5 %}text-yellow-400{% else %}text-gray-500{% endif %}">
+                score {{ snippet.score }}
+              </span>
+            </div>
+          </div>
+          <p class="text-xs text-gray-400 leading-relaxed line-clamp-5">{{ snippet.summary }}</p>
+        </div>
+        {% endfor %}
+      </div>
+    </details>
+    {% endif %}
+
+    {% elif not result %}
+    <!-- Empty state -->
+    <div class="card p-10 text-center border-dashed border-gray-700">
+      <div class="text-5xl mb-4 select-none">🤖</div>
+      <p class="text-gray-400 text-sm">Ask a question to query your lake with AI.</p>
+      <p class="mt-1 text-xs text-gray-600">
+        Your question is embedded with <strong class="text-gray-500">gemini-embedding-001</strong>,
+        matched against stored embeddings via DuckDB VSS,
+        then answered by <strong class="text-gray-500">gemini-2.5-flash</strong>.
+      </p>
+    </div>
+    {% endif %}
+
+  </div>
+
+  <!-- ─── Example questions sidebar ─── -->
+  <div class="flex flex-col gap-3">
+    <p class="text-xs font-semibold uppercase tracking-widest text-gray-500">Example Questions</p>
+    {% for q in example_questions %}
+    <button
+      type="button"
+      onclick="setQuestion(this)"
+      data-q="{{ q }}"
+      class="card p-3 text-left hover:border-blue-600 hover:bg-gray-700/40 transition-all group"
+    >
+      <p class="text-xs text-gray-300 group-hover:text-blue-400 transition-colors leading-snug">{{ q }}</p>
+    </button>
+    {% endfor %}
+
+    <div class="mt-2 p-3 bg-gray-800/50 rounded-lg border border-gray-700/50">
+      <p class="text-xs font-semibold text-gray-500 mb-1">How it works</p>
+      <ol class="text-xs text-gray-600 leading-relaxed space-y-1 list-decimal list-inside">
+        <li>Question → <code class="font-mono text-blue-500">gemini-embedding-001</code></li>
+        <li>DuckDB VSS cosine search (top 5)</li>
+        <li>Context + question → <code class="font-mono text-blue-500">gemini-2.5-flash</code></li>
+      </ol>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function setQuestion(btn) {
+  document.getElementById('question').value = btn.dataset.q;
+  document.getElementById('question').focus();
+}
+
+document.getElementById('aiForm').addEventListener('submit', function() {
+  document.getElementById('askBtn').disabled = true;
+  document.getElementById('askBtn').classList.add('opacity-60', 'cursor-not-allowed');
+  document.getElementById('loadingHint').classList.remove('hidden');
+});
+</script>
+{% endblock %}
