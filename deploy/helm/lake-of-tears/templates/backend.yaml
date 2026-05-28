@@ -22,13 +22,13 @@ spec:
             - name: http
               containerPort: 8000
           env:
-            - name: DATABASE_URL
-              value: "postgresql://{{ .Values.postgres.auth.username }}:$(POSTGRES_AUTH_PASSWORD)@{{ include "lake-of-tears.fullname" . }}-postgres:5432/{{ .Values.postgres.auth.database }}"
             - name: POSTGRES_AUTH_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "lake-of-tears.fullname" . }}-credentials
                   key: postgresAuthPassword
+            - name: DATABASE_URL
+              value: "postgresql://{{ .Values.postgres.auth.username }}:$(POSTGRES_AUTH_PASSWORD)@{{ include "lake-of-tears.fullname" . }}-postgres:5432/{{ .Values.postgres.auth.database }}"
             - name: AUTH_SECRET_KEY
               valueFrom:
                 secretKeyRef:
