@@ -167,6 +167,86 @@ airflow:
       memory: "4Gi"
 
 # ---------------------------------------------------------------------------
+# Auth backend — FastAPI service handling login, SSO, and user management
+# ---------------------------------------------------------------------------
+backend:
+  enabled: true
+
+  image:
+    repository: lake-of-tears-backend
+    tag: latest
+    pullPolicy: Never
+
+  auth:
+    # REQUIRED — generate with: python -c "import secrets; print(secrets.token_hex(32))"
+    secretKey: ""
+    # Public base URL — used for OAuth callback redirect URIs
+    baseUrl: "http://localhost"
+
+  google:
+    clientId: ""
+    clientSecret: ""
+
+  github:
+    clientId: ""
+    clientSecret: ""
+
+  microsoft:
+    clientId: ""
+    clientSecret: ""
+    tenantId: "common"
+
+  oidc:
+    clientId: ""
+    clientSecret: ""
+    authUrl: ""
+    tokenUrl: ""
+    userinfoUrl: ""
+    scope: "openid email profile"
+    displayName: "SSO"
+
+  service:
+    port: 8000
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# ---------------------------------------------------------------------------
+# PostgreSQL — auth database
+# ---------------------------------------------------------------------------
+postgres:
+  enabled: true
+
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+
+  auth:
+    database: lake_auth
+    username: lake_auth
+    password: ""  # REQUIRED
+
+  persistence:
+    size: 5Gi
+
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "1Gi"
+
+  # External Postgres DSN used by Airflow pipeline scripts (optional, unrelated to auth)
+  dsn: ""
+
+# ---------------------------------------------------------------------------
 # Data source credentials (all optional — omit sources you don't use)
 # ---------------------------------------------------------------------------
 stripe:
@@ -178,9 +258,6 @@ shopify:
 
 hubspot:
   accessToken: ""
-
-postgres:
-  dsn: ""
 
 # ---------------------------------------------------------------------------
 # Google Gemini AI

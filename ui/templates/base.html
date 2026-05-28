@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="en" class="h-full" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -7,6 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
+      darkMode: 'class',
       theme: {
         extend: {
           colors: {
@@ -18,10 +19,37 @@
       }
     }
   </script>
+  <style>
+    /* Theme: dark (default) */
+    :root {
+      --c-topbar-bg:  #1a1a1a;
+      --c-topbar-border: rgba(255,255,255,0.07);
+      --c-content-bg: #111111;
+      --c-text-main:  #f3f4f6;
+      --c-text-muted: #6b7280;
+      --c-input-bg:   #1f2937;
+      --c-input-border: #374151;
+    }
+    html[data-theme="light"] {
+      --c-topbar-bg:   #ffffff;
+      --c-topbar-border: rgba(0,0,0,0.08);
+      --c-content-bg:  #f5f5f5;
+      --c-text-main:   #111111;
+      --c-text-muted:  #6b7280;
+      --c-input-bg:    #ffffff;
+      --c-input-border: #d1d5db;
+    }
+    body { background-color: var(--c-content-bg); color: var(--c-text-main); }
+    header.topbar-shell {
+      background-color: var(--c-topbar-bg) !important;
+      border-bottom-color: var(--c-topbar-border) !important;
+    }
+    main { background-color: var(--c-content-bg) !important; }
+  </style>
   <style type="text/tailwindcss">
     @layer base {
       html, body { height: 100%; overflow: hidden; }
-      body { @apply bg-[#111111] text-gray-100 font-sans antialiased; }
+      body { @apply font-sans antialiased; }
     }
     @layer components {
       .nav-section  { @apply px-3 pt-5 pb-1 text-[10px] font-semibold uppercase tracking-widest text-gray-600 select-none; }
@@ -139,15 +167,51 @@
   <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
 
     <!-- Top bar -->
-    <header class="h-[48px] bg-[#1a1a1a] border-b border-white/[0.07] flex items-center justify-between px-5 shrink-0 gap-4">
+    <header class="topbar-shell h-[48px] border-b flex items-center justify-between px-5 shrink-0 gap-4">
       <div class="flex items-center gap-2 flex-1 max-w-md">
-        <svg class="w-3.5 h-3.5 text-gray-600 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-        <input type="text" placeholder="Search data, notebooks, pipelines…" class="bg-transparent text-[13px] text-gray-400 placeholder-gray-600 focus:outline-none w-full"/>
+        <svg class="w-3.5 h-3.5 text-gray-500 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        <input type="text" placeholder="Search data, notebooks, pipelines…" class="bg-transparent text-[13px] text-gray-400 placeholder-gray-500 focus:outline-none w-full"/>
       </div>
-      <div class="flex items-center gap-4 text-[13px] text-gray-500 shrink-0">
-        <a href="https://lakeoftears.ai" target="_blank" class="hover:text-gray-300 transition-colors hidden sm:block">Docs</a>
-        <a href="https://github.com/hubbertj/lake-of-tears" target="_blank" class="hover:text-gray-300 transition-colors hidden sm:block">GitHub</a>
-        <div class="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white select-none cursor-default">J</div>
+      <div class="flex items-center gap-3 shrink-0">
+
+        <!-- Theme toggle -->
+        <div class="flex items-center gap-0.5 bg-black/20 rounded-md p-0.5" title="Theme">
+          <button onclick="setTheme('light')" id="theme-light" title="Light"
+            class="p-1.5 rounded transition-colors text-gray-600 hover:text-gray-300">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v1m0 16v1m8.66-9h-1M4.34 12h-1m15.07-6.07l-.71.71M6.34 17.66l-.71.71m12.73 0l-.71-.71M6.34 6.34l-.71-.71M12 5a7 7 0 100 14A7 7 0 0012 5z"/></svg>
+          </button>
+          <button onclick="setTheme('dark')" id="theme-dark" title="Dark"
+            class="p-1.5 rounded transition-colors text-gray-400 hover:text-gray-200">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+          </button>
+          <button onclick="setTheme('auto')" id="theme-auto" title="Auto"
+            class="p-1.5 rounded transition-colors text-gray-600 hover:text-gray-300">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17H3a2 2 0 01-2-2V5a2 2 0 012-2h14a2 2 0 012 2v10a2 2 0 01-2 2h-2"/></svg>
+          </button>
+        </div>
+
+        <a href="https://github.com/hubbertj/lake-of-tears" target="_blank" class="text-gray-500 hover:text-gray-300 transition-colors hidden sm:block text-[13px]">GitHub</a>
+
+        <!-- User avatar + logout -->
+        <div class="relative group">
+          <div class="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center text-xs font-bold text-white select-none cursor-pointer" id="user-avatar">
+            {{ request.state.user.email[0].upper() if request.state.user else 'U' }}
+          </div>
+          <div class="absolute right-0 top-9 w-48 bg-[#1e1e1e] border border-white/[0.08] rounded-lg shadow-xl py-1 hidden group-hover:block z-50 text-[13px]">
+            <div class="px-3 py-2 text-gray-400 border-b border-white/[0.06] truncate">
+              {{ request.state.user.email if request.state.user else '' }}
+            </div>
+            <div class="px-3 py-1 text-gray-600 text-xs capitalize">
+              {{ request.state.user.role if request.state.user else '' }}
+            </div>
+            <form action="/logout" method="post" class="mt-1">
+              <button type="submit" class="w-full text-left px-3 py-1.5 text-gray-400 hover:text-gray-100 hover:bg-white/[0.06] transition-colors">
+                Sign out
+              </button>
+            </form>
+          </div>
+        </div>
+
       </div>
     </header>
 
@@ -158,5 +222,50 @@
 
   </div>
 
+  <script>
+    const DARK_HOUR_START = 19; // 7 PM
+    const DARK_HOUR_END   = 7;  // 7 AM
+
+    function resolveAutoTheme() {
+      // OS preference first
+      if (window.matchMedia) {
+        const mq = window.matchMedia('(prefers-color-scheme: dark)');
+        if (mq.media !== 'not all') return mq.matches ? 'dark' : 'light';
+      }
+      // Time-of-day fallback
+      const h = new Date().getHours();
+      return (h >= DARK_HOUR_START || h < DARK_HOUR_END) ? 'dark' : 'light';
+    }
+
+    function applyTheme(pref) {
+      const effective = pref === 'auto' ? resolveAutoTheme() : pref;
+      document.documentElement.setAttribute('data-theme', effective);
+
+      ['light', 'dark', 'auto'].forEach(t => {
+        const btn = document.getElementById('theme-' + t);
+        if (!btn) return;
+        btn.className = btn.className.replace(/text-\S+/g, '').trim();
+        btn.className += (t === pref) ? ' text-white bg-white/10' : ' text-gray-600 hover:text-gray-300';
+      });
+    }
+
+    function setTheme(pref) {
+      localStorage.setItem('lake-theme', pref);
+      applyTheme(pref);
+    }
+
+    // Init on load
+    (function() {
+      const saved = localStorage.getItem('lake-theme') || 'auto';
+      applyTheme(saved);
+    })();
+
+    // Re-evaluate auto theme if OS preference changes
+    if (window.matchMedia) {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        if ((localStorage.getItem('lake-theme') || 'auto') === 'auto') applyTheme('auto');
+      });
+    }
+  </script>
 </body>
 </html>

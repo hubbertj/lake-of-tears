@@ -1,0 +1,105 @@
+{{- if .Values.backend.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lake-of-tears.fullname" . }}-backend
+  labels: {{ include "lake-of-tears.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "lake-of-tears.fullname" . }}-backend
+  template:
+    metadata:
+      labels:
+        app: {{ include "lake-of-tears.fullname" . }}-backend
+    spec:
+      containers:
+        - name: backend
+          image: {{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              value: "postgresql://{{ .Values.postgres.auth.username }}:$(POSTGRES_AUTH_PASSWORD)@{{ include "lake-of-tears.fullname" . }}-postgres:5432/{{ .Values.postgres.auth.database }}"
+            - name: POSTGRES_AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: postgresAuthPassword
+            - name: AUTH_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: authSecretKey
+            - name: AUTH_BASE_URL
+              value: {{ .Values.backend.auth.baseUrl | quote }}
+            - name: GOOGLE_CLIENT_ID
+              value: {{ .Values.backend.google.clientId | quote }}
+            - name: GOOGLE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: googleClientSecret
+            - name: GITHUB_CLIENT_ID
+              value: {{ .Values.backend.github.clientId | quote }}
+            - name: GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: githubClientSecret
+            - name: MICROSOFT_CLIENT_ID
+              value: {{ .Values.backend.microsoft.clientId | quote }}
+            - name: MICROSOFT_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: microsoftClientSecret
+            - name: MICROSOFT_TENANT_ID
+              value: {{ .Values.backend.microsoft.tenantId | quote }}
+            - name: OIDC_CLIENT_ID
+              value: {{ .Values.backend.oidc.clientId | quote }}
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: oidcClientSecret
+            - name: OIDC_AUTH_URL
+              value: {{ .Values.backend.oidc.authUrl | quote }}
+            - name: OIDC_TOKEN_URL
+              value: {{ .Values.backend.oidc.tokenUrl | quote }}
+            - name: OIDC_USERINFO_URL
+              value: {{ .Values.backend.oidc.userinfoUrl | quote }}
+            - name: OIDC_SCOPE
+              value: {{ .Values.backend.oidc.scope | quote }}
+            - name: OIDC_DISPLAY_NAME
+              value: {{ .Values.backend.oidc.displayName | quote }}
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources: {{ toYaml .Values.backend.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lake-of-tears.fullname" . }}-backend
+  labels: {{ include "lake-of-tears.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ include "lake-of-tears.fullname" . }}-backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+{{- end }}

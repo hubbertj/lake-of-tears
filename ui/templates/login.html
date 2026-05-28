@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in — Lake of Tears</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class' }</script>
+  <style type="text/tailwindcss">
+    @layer base { html, body { height: 100%; } }
+  </style>
+</head>
+<body class="dark h-full bg-[#0d0d0d] flex items-center justify-center p-4">
+
+  <div class="w-full max-w-sm">
+
+    <!-- Logo -->
+    <div class="flex items-center justify-center gap-2.5 mb-8">
+      <span class="text-2xl">💧</span>
+      <span class="text-xl font-bold text-gray-100 tracking-tight">Lake of Tears</span>
+    </div>
+
+    <!-- Card -->
+    <div class="bg-[#161616] border border-white/[0.08] rounded-xl p-8">
+
+      <!-- Tabs: Sign in / Create account -->
+      <div class="flex gap-1 mb-6 bg-black/30 rounded-lg p-1">
+        <button id="tab-login" onclick="setTab('login')"
+          class="flex-1 text-sm py-1.5 rounded-md font-medium transition-colors text-white bg-white/10">
+          Sign in
+        </button>
+        <button id="tab-register" onclick="setTab('register')"
+          class="flex-1 text-sm py-1.5 rounded-md font-medium transition-colors text-gray-500 hover:text-gray-300">
+          Create account
+        </button>
+      </div>
+
+      <!-- Error / success banner -->
+      <div id="banner" class="hidden mb-4 px-3 py-2 rounded-md text-sm"></div>
+
+      <!-- Login form -->
+      <form id="form-login" onsubmit="submitLogin(event)" class="space-y-3">
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Email</label>
+          <input id="login-email" type="email" required placeholder="you@example.com"
+            class="w-full bg-gray-900 border border-gray-700 rounded-md px-3 py-2 text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500 text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Password</label>
+          <input id="login-password" type="password" required placeholder="••••••••"
+            class="w-full bg-gray-900 border border-gray-700 rounded-md px-3 py-2 text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500 text-sm" />
+        </div>
+        <button type="submit"
+          class="w-full mt-1 py-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors">
+          Sign in
+        </button>
+      </form>
+
+      <!-- Register form (hidden by default) -->
+      <form id="form-register" onsubmit="submitRegister(event)" class="space-y-3 hidden">
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Display name</label>
+          <input id="reg-name" type="text" placeholder="Your name"
+            class="w-full bg-gray-900 border border-gray-700 rounded-md px-3 py-2 text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500 text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Email</label>
+          <input id="reg-email" type="email" required placeholder="you@example.com"
+            class="w-full bg-gray-900 border border-gray-700 rounded-md px-3 py-2 text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500 text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs text-gray-500 mb-1">Password</label>
+          <input id="reg-password" type="password" required placeholder="At least 8 characters"
+            class="w-full bg-gray-900 border border-gray-700 rounded-md px-3 py-2 text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500 text-sm" />
+        </div>
+        <button type="submit"
+          class="w-full mt-1 py-2 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors">
+          Create account
+        </button>
+      </form>
+
+      <!-- SSO divider + buttons -->
+      <div id="sso-section" class="mt-5 hidden">
+        <div class="flex items-center gap-3 mb-4">
+          <div class="flex-1 h-px bg-white/[0.08]"></div>
+          <span class="text-xs text-gray-600">or continue with</span>
+          <div class="flex-1 h-px bg-white/[0.08]"></div>
+        </div>
+        <div id="sso-buttons" class="flex flex-col gap-2"></div>
+      </div>
+
+    </div>
+
+    <p class="text-center text-xs text-gray-700 mt-6">
+      Lake of Tears &middot; Self-hosted datalakehouse
+    </p>
+  </div>
+
+  <script>
+    const NEXT = new URLSearchParams(window.location.search).get('next') || '/';
+    const ERROR = new URLSearchParams(window.location.search).get('error');
+
+    if (ERROR) {
+      const msgs = { expired: 'Session expired — please sign in again.', invalid: 'Invalid session.', disabled: 'Your account has been disabled.' };
+      showBanner(msgs[ERROR] || 'Authentication error.', 'error');
+    }
+
+    function showBanner(msg, type) {
+      const el = document.getElementById('banner');
+      el.textContent = msg;
+      el.className = type === 'error'
+        ? 'mb-4 px-3 py-2 rounded-md text-sm bg-red-900/40 text-red-400 border border-red-800/50'
+        : 'mb-4 px-3 py-2 rounded-md text-sm bg-emerald-900/40 text-emerald-400 border border-emerald-800/50';
+      el.classList.remove('hidden');
+    }
+
+    function setTab(tab) {
+      const isLogin = tab === 'login';
+      document.getElementById('form-login').classList.toggle('hidden', !isLogin);
+      document.getElementById('form-register').classList.toggle('hidden', isLogin);
+      document.getElementById('tab-login').className = `flex-1 text-sm py-1.5 rounded-md font-medium transition-colors ${isLogin ? 'text-white bg-white/10' : 'text-gray-500 hover:text-gray-300'}`;
+      document.getElementById('tab-register').className = `flex-1 text-sm py-1.5 rounded-md font-medium transition-colors ${!isLogin ? 'text-white bg-white/10' : 'text-gray-500 hover:text-gray-300'}`;
+      document.getElementById('banner').classList.add('hidden');
+    }
+
+    async function submitLogin(e) {
+      e.preventDefault();
+      const btn = e.target.querySelector('button[type=submit]');
+      btn.disabled = true; btn.textContent = 'Signing in…';
+      try {
+        const res = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            email: document.getElementById('login-email').value,
+            password: document.getElementById('login-password').value,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) { window.location.href = NEXT; }
+        else { showBanner(data.detail || 'Sign in failed.', 'error'); }
+      } catch { showBanner('Network error — is the backend running?', 'error'); }
+      btn.disabled = false; btn.textContent = 'Sign in';
+    }
+
+    async function submitRegister(e) {
+      e.preventDefault();
+      const pwd = document.getElementById('reg-password').value;
+      if (pwd.length < 8) { showBanner('Password must be at least 8 characters.', 'error'); return; }
+      const btn = e.target.querySelector('button[type=submit]');
+      btn.disabled = true; btn.textContent = 'Creating account…';
+      try {
+        const res = await fetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            email: document.getElementById('reg-email').value,
+            password: pwd,
+            display_name: document.getElementById('reg-name').value || null,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) { window.location.href = NEXT; }
+        else { showBanner(data.detail || 'Registration failed.', 'error'); }
+      } catch { showBanner('Network error — is the backend running?', 'error'); }
+      btn.disabled = false; btn.textContent = 'Create account';
+    }
+
+    function oauthLogin(provider) {
+      window.location.href = `/api/auth/oauth/${provider}?next=${encodeURIComponent(NEXT)}`;
+    }
+
+    const PROVIDER_ICONS = {
+      google: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>`,
+      github: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>`,
+      microsoft: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z" fill="#00a4ef"/></svg>`,
+    };
+
+    async function loadProviders() {
+      try {
+        const res = await fetch('/api/auth/providers');
+        const providers = await res.json();
+        if (!providers.length) return;
+        document.getElementById('sso-section').classList.remove('hidden');
+        const container = document.getElementById('sso-buttons');
+        providers.forEach(p => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.onclick = () => oauthLogin(p.key);
+          btn.className = 'flex items-center justify-center gap-2.5 w-full py-2 px-4 bg-white/[0.05] hover:bg-white/[0.1] border border-white/[0.08] rounded-md text-gray-300 text-sm font-medium transition-colors';
+          btn.innerHTML = `${PROVIDER_ICONS[p.key] || ''}<span>Continue with ${p.label}</span>`;
+          container.appendChild(btn);
+        });
+      } catch { /* SSO section stays hidden */ }
+    }
+
+    loadProviders();
+  </script>
+</body>
+</html>

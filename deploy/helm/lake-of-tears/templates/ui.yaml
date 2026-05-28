@@ -50,6 +50,13 @@ spec:
                   key: GEMINI_API_KEY
             - name: MINIO_CONSOLE_URL
               value: {{ .Values.lakeui.minioConsoleUrl | default (printf "https://%s" .Values.ingress.minioConsoleHost) | quote }}
+            - name: AUTH_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: authSecretKey
+            - name: AUTH_ENABLED
+              value: {{ .Values.backend.enabled | quote }}
           livenessProbe:
             httpGet:
               path: /health

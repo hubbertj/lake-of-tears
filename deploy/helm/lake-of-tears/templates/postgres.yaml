@@ -1,0 +1,70 @@
+{{- if .Values.postgres.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "lake-of-tears.fullname" . }}-postgres
+  labels: {{ include "lake-of-tears.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.global.storageClass | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.postgres.persistence.size }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lake-of-tears.fullname" . }}-postgres
+  labels: {{ include "lake-of-tears.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "lake-of-tears.fullname" . }}-postgres
+  template:
+    metadata:
+      labels:
+        app: {{ include "lake-of-tears.fullname" . }}-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}
+          imagePullPolicy: {{ .Values.postgres.image.pullPolicy }}
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.auth.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.auth.username | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: postgresAuthPassword
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgres.auth.username | quote }}, "-d", {{ .Values.postgres.auth.database | quote }}]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+          resources: {{ toYaml .Values.postgres.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "lake-of-tears.fullname" . }}-postgres
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lake-of-tears.fullname" . }}-postgres
+  labels: {{ include "lake-of-tears.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: {{ include "lake-of-tears.fullname" . }}-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+{{- end }}

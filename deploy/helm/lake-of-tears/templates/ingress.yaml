@@ -5,10 +5,39 @@
 
 # ── Lake UI + embedded services (path-based, single host) ──────────────────
 #
+# /api/       → Auth backend
 # /           → Lake UI shell
 # /jupyter/   → JupyterLab  (base_url=/jupyter/ — no path rewrite needed)
 # /superset/  → Superset    (APPLICATION_PREFIX_PATH=/superset — no rewrite)
 # /airflow/   → Airflow     (BASE_URL has /airflow/ prefix; nginx strips it)
+
+{{- if .Values.backend.enabled }}
+---
+# Auth backend — /api/ path (must be listed before /)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $fullName }}-backend
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $fullName }}-backend
+                port:
+                  name: http
+{{- end }}
 
 ---
 # Lake UI (root path — must be listed last so more-specific paths take priority)

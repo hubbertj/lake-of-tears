@@ -4,19 +4,24 @@ import math
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import boto3
 import botocore.exceptions
 import duckdb
+import jwt
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from google import genai
+from starlette.middleware.base import BaseHTTPMiddleware
 
 _env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(_env_path)
+
+AUTH_SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "dev-secret-please-change-in-production")
+AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() == "true"
 
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "")
@@ -36,6 +41,37 @@ SOURCE_LABELS = {
 
 app = FastAPI(title="Lake of Tears")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+
+_PUBLIC_PREFIXES = ("/login", "/logout", "/api/", "/health")
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if not AUTH_ENABLED:
+            request.state.user = None
+            return await call_next(request)
+
+        path = request.url.path
+        if any(path == p or path.startswith(p) for p in _PUBLIC_PREFIXES):
+            request.state.user = None
+            return await call_next(request)
+
+        token = request.cookies.get("lake_token")
+        if not token:
+            return RedirectResponse(url=f"/login?next={request.url}", status_code=302)
+
+        try:
+            payload = jwt.decode(token, AUTH_SECRET_KEY, algorithms=["HS256"])
+            request.state.user = payload
+        except jwt.ExpiredSignatureError:
+            return RedirectResponse(url="/login?error=expired", status_code=302)
+        except jwt.InvalidTokenError:
+            return RedirectResponse(url="/login?error=invalid", status_code=302)
+
+        return await call_next(request)
+
+
+app.add_middleware(AuthMiddleware)
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +355,26 @@ EXAMPLE_QUESTIONS = [
     "Are there any unusual spikes in Stripe refunds?",
     "What is the current state of our sales pipeline in HubSpot?",
 ]
+
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request):
+    if AUTH_ENABLED:
+        token = request.cookies.get("lake_token")
+        if token:
+            try:
+                jwt.decode(token, AUTH_SECRET_KEY, algorithms=["HS256"])
+                return RedirectResponse(url="/", status_code=302)
+            except jwt.InvalidTokenError:
+                pass
+    return templates.TemplateResponse("login.html", {"request": request})
+
+
+@app.post("/logout")
+async def logout():
+    resp = RedirectResponse(url="/login", status_code=302)
+    resp.delete_cookie("lake_token")
+    return resp
 
 
 @app.get("/", response_class=HTMLResponse)
