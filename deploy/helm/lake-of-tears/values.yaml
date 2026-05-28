@@ -27,7 +27,7 @@ global:
 minio:
   image:
     repository: quay.io/minio/minio
-    tag: RELEASE.2024-11-07T00-52-20Z
+    tag: RELEASE.2023-03-20T20-16-18Z
     pullPolicy: IfNotPresent
 
   # Root credentials — REQUIRED, no defaults
