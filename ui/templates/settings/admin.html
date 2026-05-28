@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Admin Panel — Lake of Tears{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl space-y-6">
+  <div>
+    <h1 class="text-xl font-semibold text-gray-100 mb-1">Admin Panel</h1>
+    <p class="text-sm text-gray-500">Manage users and workspaces across the entire instance.</p>
+  </div>
+
+  {% if saved %}
+  <div class="px-4 py-3 rounded-md bg-emerald-900/30 border border-emerald-800/50 text-emerald-400 text-sm">
+    Changes saved.
+  </div>
+  {% endif %}
+
+  <!-- Users -->
+  <div class="card p-6">
+    <h2 class="text-sm font-semibold text-gray-300 mb-4">Users ({{ users | length }})</h2>
+    {% if users %}
+    <div class="space-y-1">
+      {% for u in users %}
+      <div class="flex items-center gap-3 py-2 border-b border-white/[0.04] last:border-0">
+        <div class="w-7 h-7 rounded-full {% if u.is_active %}bg-blue-600{% else %}bg-gray-700{% endif %} flex items-center justify-center text-xs font-bold text-white shrink-0">
+          {{ (u.display_name or u.email)[0] | upper }}
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2">
+            <span class="text-sm text-gray-200 truncate">{{ u.display_name or u.email }}</span>
+            {% if not u.is_active %}<span class="badge-red text-[10px]">Disabled</span>{% endif %}
+          </div>
+          <div class="text-[11px] text-gray-500 truncate">{{ u.email }}</div>
+        </div>
+        <!-- Role selector -->
+        {% if u.id != (request.state.user.sub | default('')) %}
+        <form action="/settings/admin/users/{{ u.id }}/role" method="post" class="shrink-0">
+          <select name="role" onchange="this.form.submit()" class="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded px-2 py-1 focus:outline-none focus:border-blue-500">
+            <option value="user" {% if u.role == 'user' %}selected{% endif %}>User</option>
+            <option value="superadmin" {% if u.role == 'superadmin' %}selected{% endif %}>Superadmin</option>
+          </select>
+        </form>
+        <!-- Toggle active -->
+        <form action="/settings/admin/users/{{ u.id }}/toggle" method="post">
+          <button type="submit"
+            class="text-xs px-2.5 py-1 rounded border transition-colors {% if u.is_active %}border-gray-700 text-gray-500 hover:text-red-400 hover:border-red-600/50{% else %}border-emerald-700/50 text-emerald-500 hover:text-emerald-300{% endif %}">
+            {{ 'Disable' if u.is_active else 'Enable' }}
+          </button>
+        </form>
+        {% else %}
+        <span class="text-[11px] text-gray-500 capitalize shrink-0">{{ u.role }} (you)</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-sm text-gray-500">No users found.</p>
+    {% endif %}
+  </div>
+
+  <!-- Workspaces -->
+  <div class="card p-6">
+    <h2 class="text-sm font-semibold text-gray-300 mb-4">Workspaces ({{ workspaces | length }})</h2>
+    {% if workspaces %}
+    <div class="space-y-1 mb-6">
+      {% for ws in workspaces %}
+      <div class="flex items-center gap-3 py-2 border-b border-white/[0.04] last:border-0">
+        <span class="w-7 h-7 rounded bg-blue-600/50 shrink-0 flex items-center justify-center text-[11px] font-bold text-blue-300">{{ ws.name[0] | upper }}</span>
+        <div class="flex-1 min-w-0">
+          <div class="text-sm text-gray-200 truncate">{{ ws.name }}</div>
+          <div class="text-[11px] text-gray-500">slug: {{ ws.slug }}{% if ws.description %} &middot; {{ ws.description }}{% endif %}</div>
+        </div>
+        <span class="text-[11px] text-gray-600 shrink-0 capitalize">{{ ws.my_role or '—' }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-sm text-gray-500 mb-4">No workspaces yet.</p>
+    {% endif %}
+
+    <!-- Create workspace -->
+    <h3 class="text-xs font-semibold text-gray-400 mb-3">Create workspace</h3>
+    <form action="/settings/admin/workspaces/create" method="post" class="space-y-3">
+      <div class="flex gap-2">
+        <input type="text" name="name" required placeholder="Workspace name"
+          class="flex-1 input-dark text-sm" style="background-color: var(--c-input-bg); border-color: var(--c-input-border);" />
+        <button type="submit" class="btn-primary shrink-0">Create</button>
+      </div>
+      <input type="text" name="description" placeholder="Description (optional)"
+        class="w-full input-dark text-sm" style="background-color: var(--c-input-bg); border-color: var(--c-input-border);" />
+    </form>
+  </div>
+</div>
+{% endblock %}

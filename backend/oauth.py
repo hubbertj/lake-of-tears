@@ -10,7 +10,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from auth import SECRET_KEY, COOKIE_NAME, TOKEN_MAX_AGE, create_token
-from models import OAuthAccount, User
+from models import OAuthAccount, User, Workspace, WorkspaceMember
 
 _STATE_COOKIE = "oauth_state"
 _BASE_URL = lambda: os.getenv("AUTH_BASE_URL", "http://localhost")  # noqa: E731
@@ -184,10 +184,19 @@ def handle_oauth_callback(provider: str, request: Request, response: Response, d
         user = User(
             email=email,
             display_name=display_name or email.split("@")[0],
-            role="admin" if is_first else "viewer",
+            role="superadmin" if is_first else "user",
         )
         db.add(user)
         db.flush()
+
+        if is_first:
+            # Bootstrap default workspace
+            from main import _create_default_workspace
+            _create_default_workspace(db, user)
+        else:
+            default_ws = db.query(Workspace).filter(Workspace.slug == "default").first()
+            if default_ws:
+                db.add(WorkspaceMember(workspace_id=default_ws.id, user_id=user.id, role="user"))
 
     # Link OAuth account
     if not db.query(OAuthAccount).filter_by(provider=provider, provider_user_id=provider_user_id).first():
@@ -200,7 +209,7 @@ def handle_oauth_callback(provider: str, request: Request, response: Response, d
         resp.delete_cookie(_STATE_COOKIE)
         return resp
 
-    token = create_token({"sub": str(user.id), "email": user.email, "role": user.role})
+    token = create_token({"sub": str(user.id), "email": user.email, "role": user.role, "display_name": user.display_name or ""})
     next_url = state_data.get("next", "/")
     resp = RedirectResponse(url=next_url)
     resp.delete_cookie(_STATE_COOKIE)

@@ -163,9 +163,12 @@ services:
       MINIO_CONSOLE_URL: ${MINIO_CONSOLE_URL:-http://localhost:9001}
       AUTH_SECRET_KEY: ${AUTH_SECRET_KEY}
       AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      BACKEND_URL: http://backend:8000
     depends_on:
       minio:
         condition: service_healthy
+      backend:
+        condition: service_started
     networks:
       - datalake
 

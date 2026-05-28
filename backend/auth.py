@@ -4,12 +4,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import jwt
-from fastapi import Cookie, Depends, HTTPException
+from fastapi import Cookie, Depends, Header, HTTPException
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from database import get_db
-from models import User
+from models import User, WorkspaceMember
 
 SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "dev-secret-please-change-in-production")
 ALGORITHM = "HS256"
@@ -39,12 +39,16 @@ def decode_token(token: str) -> dict:
 
 def get_current_user(
     lake_token: Optional[str] = Cookie(default=None),
+    authorization: Optional[str] = Header(default=None),
     db: Session = Depends(get_db),
 ) -> User:
-    if not lake_token:
+    token = lake_token
+    if not token and authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+    if not token:
         raise HTTPException(401, "Not authenticated")
     try:
-        payload = decode_token(lake_token)
+        payload = decode_token(token)
     except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Token expired")
     except jwt.InvalidTokenError:
@@ -56,7 +60,54 @@ def get_current_user(
     return user
 
 
-def require_admin(current_user: User = Depends(get_current_user)) -> User:
-    if current_user.role != "admin":
-        raise HTTPException(403, "Admin access required")
+def require_superadmin(current_user: User = Depends(get_current_user)) -> User:
+    if current_user.role != "superadmin":
+        raise HTTPException(403, "Superadmin access required")
     return current_user
+
+
+def get_workspace_member(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> WorkspaceMember:
+    member = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.workspace_id == workspace_id,
+            WorkspaceMember.user_id == current_user.id,
+        )
+        .first()
+    )
+    if not member and current_user.role != "superadmin":
+        raise HTTPException(403, "Not a member of this workspace")
+    return member
+
+
+def require_workspace_admin(
+    workspace_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> WorkspaceMember:
+    if current_user.role == "superadmin":
+        member = (
+            db.query(WorkspaceMember)
+            .filter(
+                WorkspaceMember.workspace_id == workspace_id,
+                WorkspaceMember.user_id == current_user.id,
+            )
+            .first()
+        )
+        return member  # superadmin always passes
+    member = (
+        db.query(WorkspaceMember)
+        .filter(
+            WorkspaceMember.workspace_id == workspace_id,
+            WorkspaceMember.user_id == current_user.id,
+            WorkspaceMember.role == "admin",
+        )
+        .first()
+    )
+    if not member:
+        raise HTTPException(403, "Workspace admin access required")
+    return member

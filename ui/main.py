@@ -9,10 +9,11 @@ from typing import Any, Optional
 import boto3
 import botocore.exceptions
 import duckdb
+import httpx
 import jwt
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from google import genai
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -22,6 +23,7 @@ load_dotenv(_env_path)
 
 AUTH_SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "dev-secret-please-change-in-production")
 AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() == "true"
+BACKEND_URL = os.getenv("BACKEND_URL", "http://backend:8000")
 
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "")
@@ -43,17 +45,35 @@ app = FastAPI(title="Lake of Tears")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
 
 _PUBLIC_PREFIXES = ("/login", "/logout", "/api/", "/health")
+_WORKSPACE_COOKIE = "lake_workspace_id"
+
+
+def _fetch_workspaces(token: str) -> list[dict]:
+    try:
+        with httpx.Client(timeout=3) as client:
+            resp = client.get(
+                f"{BACKEND_URL}/api/workspaces",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+    return []
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
+        # Defaults
+        request.state.user = None
+        request.state.workspace = None
+        request.state.workspaces = []
+
         if not AUTH_ENABLED:
-            request.state.user = None
             return await call_next(request)
 
         path = request.url.path
         if any(path == p or path.startswith(p) for p in _PUBLIC_PREFIXES):
-            request.state.user = None
             return await call_next(request)
 
         token = request.cookies.get("lake_token")
@@ -67,6 +87,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return RedirectResponse(url="/login?error=expired", status_code=302)
         except jwt.InvalidTokenError:
             return RedirectResponse(url="/login?error=invalid", status_code=302)
+
+        # Fetch workspace context
+        import asyncio
+        workspaces = await asyncio.get_event_loop().run_in_executor(
+            None, _fetch_workspaces, token
+        )
+        request.state.workspaces = workspaces
+
+        active_id = request.cookies.get(_WORKSPACE_COOKIE, "")
+        active = next((w for w in workspaces if str(w["id"]) == active_id), None)
+        if not active and workspaces:
+            active = workspaces[0]
+        request.state.workspace = active
 
         return await call_next(request)
 
@@ -454,12 +487,14 @@ async def dashboards(request: Request):
 
 @app.get("/pipelines", response_class=HTMLResponse)
 async def pipelines(request: Request):
+    ws = request.state.workspace
+    embed_url = f"/airflow/?tags={ws['slug']}" if ws else "/airflow/"
     return templates.TemplateResponse(
         "embed.html",
         {
             "request": request,
             "page": "pipelines",
-            "embed_url": "/airflow/",
+            "embed_url": embed_url,
             "embed_title": "Pipelines",
             "embed_service": "Apache Airflow",
         },
@@ -468,12 +503,14 @@ async def pipelines(request: Request):
 
 @app.get("/notebooks", response_class=HTMLResponse)
 async def notebooks(request: Request):
+    ws = request.state.workspace
+    embed_url = f"/jupyter/lab/tree/{ws['slug']}/" if ws else "/jupyter/"
     return templates.TemplateResponse(
         "embed.html",
         {
             "request": request,
             "page": "notebooks",
-            "embed_url": "/jupyter/",
+            "embed_url": embed_url,
             "embed_title": "Notebooks",
             "embed_service": "JupyterLab",
         },
@@ -524,6 +561,234 @@ async def anomalies(request: Request):
         "anomalies.html",
         {"request": request, "page": "anomalies"},
     )
+
+
+@app.get("/workspace/switch/{workspace_id}")
+async def switch_workspace(workspace_id: str, request: Request):
+    referer = request.headers.get("referer", "/")
+    resp = RedirectResponse(url=referer, status_code=302)
+    resp.set_cookie(_WORKSPACE_COOKIE, workspace_id, max_age=30 * 24 * 3600, samesite="lax")
+    return resp
+
+
+def _backend_get(path: str, token: str) -> Optional[dict | list]:
+    try:
+        with httpx.Client(timeout=5) as client:
+            resp = client.get(
+                f"{BACKEND_URL}{path}",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+    return None
+
+
+def _backend_post(path: str, token: str, json: dict) -> Optional[dict]:
+    try:
+        with httpx.Client(timeout=5) as client:
+            resp = client.post(
+                f"{BACKEND_URL}{path}",
+                json=json,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if resp.status_code in (200, 201):
+            return resp.json()
+    except Exception:
+        pass
+    return None
+
+
+def _backend_patch(path: str, token: str, json: dict) -> Optional[dict]:
+    try:
+        with httpx.Client(timeout=5) as client:
+            resp = client.patch(
+                f"{BACKEND_URL}{path}",
+                json=json,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+    return None
+
+
+def _backend_delete(path: str, token: str) -> bool:
+    try:
+        with httpx.Client(timeout=5) as client:
+            resp = client.delete(
+                f"{BACKEND_URL}{path}",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        return resp.status_code == 200
+    except Exception:
+        pass
+    return False
+
+
+# ── Settings: Account ─────────────────────────────────────────────────────
+
+@app.get("/settings/account", response_class=HTMLResponse)
+async def settings_account_get(request: Request):
+    token = request.cookies.get("lake_token")
+    profile = _backend_get("/api/auth/me", token) if token else None
+    saved = request.query_params.get("saved")
+    return templates.TemplateResponse(
+        "settings/account.html",
+        {"request": request, "page": "settings_account", "saved": saved, "profile": profile},
+    )
+
+
+@app.post("/settings/account", response_class=HTMLResponse)
+async def settings_account_post(request: Request, display_name: str = Form(...)):
+    token = request.cookies.get("lake_token")
+    if token:
+        _backend_patch("/api/auth/me", token, {"display_name": display_name})
+    return RedirectResponse(url="/settings/account?saved=1", status_code=302)
+
+
+# ── Settings: Workspace ───────────────────────────────────────────────────
+
+@app.get("/settings/workspace", response_class=HTMLResponse)
+async def settings_workspace_get(request: Request):
+    ws = request.state.workspace
+    token = request.cookies.get("lake_token")
+    members = []
+    error = request.query_params.get("error")
+    saved = request.query_params.get("saved")
+    if ws and token:
+        members = _backend_get(f"/api/workspaces/{ws['id']}/members", token) or []
+    return templates.TemplateResponse(
+        "settings/workspace.html",
+        {
+            "request": request,
+            "page": "settings_workspace",
+            "members": members,
+            "workspace": ws,
+            "error": error,
+            "saved": saved,
+        },
+    )
+
+
+@app.post("/settings/workspace/rename")
+async def settings_workspace_rename(
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(""),
+):
+    ws = request.state.workspace
+    token = request.cookies.get("lake_token")
+    if ws and token:
+        _backend_patch(f"/api/workspaces/{ws['id']}", token, {"name": name, "description": description})
+    return RedirectResponse(url="/settings/workspace?saved=1", status_code=302)
+
+
+@app.post("/settings/workspace/members/add")
+async def settings_workspace_add_member(
+    request: Request,
+    email: str = Form(...),
+    role: str = Form("user"),
+):
+    ws = request.state.workspace
+    token = request.cookies.get("lake_token")
+    if ws and token:
+        result = _backend_post(
+            f"/api/workspaces/{ws['id']}/members",
+            token,
+            {"email": email, "role": role},
+        )
+        if result is None:
+            return RedirectResponse(url="/settings/workspace?error=member_not_found", status_code=302)
+    return RedirectResponse(url="/settings/workspace?saved=1", status_code=302)
+
+
+@app.post("/settings/workspace/members/{user_id}/remove")
+async def settings_workspace_remove_member(request: Request, user_id: str):
+    ws = request.state.workspace
+    token = request.cookies.get("lake_token")
+    if ws and token:
+        _backend_delete(f"/api/workspaces/{ws['id']}/members/{user_id}", token)
+    return RedirectResponse(url="/settings/workspace", status_code=302)
+
+
+@app.post("/settings/workspace/members/{user_id}/role")
+async def settings_workspace_member_role(
+    request: Request,
+    user_id: str,
+    role: str = Form(...),
+):
+    ws = request.state.workspace
+    token = request.cookies.get("lake_token")
+    if ws and token:
+        _backend_patch(f"/api/workspaces/{ws['id']}/members/{user_id}", token, {"role": role})
+    return RedirectResponse(url="/settings/workspace", status_code=302)
+
+
+# ── Settings: Admin ───────────────────────────────────────────────────────
+
+@app.get("/settings/admin", response_class=HTMLResponse)
+async def settings_admin_get(request: Request):
+    user = request.state.user
+    if not user or user.get("role") != "superadmin":
+        return RedirectResponse(url="/", status_code=302)
+    token = request.cookies.get("lake_token")
+    users_list = _backend_get("/api/users", token) or []
+    all_ws = _backend_get("/api/workspaces", token) or []
+    return templates.TemplateResponse(
+        "settings/admin.html",
+        {
+            "request": request,
+            "page": "settings_admin",
+            "users": users_list,
+            "workspaces": all_ws,
+            "saved": request.query_params.get("saved"),
+        },
+    )
+
+
+@app.post("/settings/admin/users/{user_id}/role")
+async def settings_admin_user_role(
+    request: Request,
+    user_id: str,
+    role: str = Form(...),
+):
+    user = request.state.user
+    if not user or user.get("role") != "superadmin":
+        return RedirectResponse(url="/", status_code=302)
+    token = request.cookies.get("lake_token")
+    _backend_patch(f"/api/users/{user_id}", token, {"role": role})
+    return RedirectResponse(url="/settings/admin?saved=1", status_code=302)
+
+
+@app.post("/settings/admin/users/{user_id}/toggle")
+async def settings_admin_user_toggle(request: Request, user_id: str):
+    user = request.state.user
+    if not user or user.get("role") != "superadmin":
+        return RedirectResponse(url="/", status_code=302)
+    token = request.cookies.get("lake_token")
+    # fetch current state then toggle
+    users_list = _backend_get("/api/users", token) or []
+    target = next((u for u in users_list if str(u["id"]) == user_id), None)
+    if target:
+        _backend_patch(f"/api/users/{user_id}", token, {"is_active": not target["is_active"]})
+    return RedirectResponse(url="/settings/admin", status_code=302)
+
+
+@app.post("/settings/admin/workspaces/create")
+async def settings_admin_create_workspace(
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(""),
+):
+    user = request.state.user
+    if not user or user.get("role") != "superadmin":
+        return RedirectResponse(url="/", status_code=302)
+    token = request.cookies.get("lake_token")
+    _backend_post("/api/workspaces", token, {"name": name, "description": description})
+    return RedirectResponse(url="/settings/admin?saved=1", status_code=302)
 
 
 @app.get("/health")

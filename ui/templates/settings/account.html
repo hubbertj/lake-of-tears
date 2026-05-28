@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Account Settings — Lake of Tears{% endblock %}
+
+{% block content %}
+<div class="max-w-xl">
+  <h1 class="text-xl font-semibold text-gray-100 mb-1">Account Settings</h1>
+  <p class="text-sm text-gray-500 mb-6">Manage your personal profile.</p>
+
+  {% if saved %}
+  <div class="mb-4 px-4 py-3 rounded-md bg-emerald-900/30 border border-emerald-800/50 text-emerald-400 text-sm">
+    Changes saved.
+  </div>
+  {% endif %}
+
+  <!-- Profile info -->
+  <div class="card p-6 mb-6">
+    <h2 class="text-sm font-semibold text-gray-300 mb-4">Profile</h2>
+    <form action="/settings/account" method="post" class="space-y-4">
+      <div>
+        <label class="block text-xs text-gray-500 mb-1.5">Display name</label>
+        <input
+          type="text"
+          name="display_name"
+          value="{{ profile.display_name if profile and profile.display_name else '' }}"
+          placeholder="Your name"
+          class="input-dark"
+          style="background-color: var(--c-input-bg); border-color: var(--c-input-border);"
+        />
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1.5">Email</label>
+        <input
+          type="text"
+          value="{{ profile.email if profile else (request.state.user.email if request.state.user else '') }}"
+          disabled
+          class="w-full rounded-md px-3 py-2 text-sm text-gray-500 bg-gray-800/50 border border-gray-700/50 cursor-not-allowed"
+        />
+        <p class="text-[11px] text-gray-600 mt-1">Email cannot be changed here.</p>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1.5">Role</label>
+        <input
+          type="text"
+          value="{{ profile.role if profile else (request.state.user.role if request.state.user else '') }}"
+          disabled
+          class="w-full rounded-md px-3 py-2 text-sm text-gray-500 bg-gray-800/50 border border-gray-700/50 cursor-not-allowed capitalize"
+        />
+      </div>
+      <div class="flex justify-end pt-1">
+        <button type="submit" class="btn-primary">Save changes</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Sign out -->
+  <div class="card p-6">
+    <h2 class="text-sm font-semibold text-gray-300 mb-3">Session</h2>
+    <p class="text-sm text-gray-500 mb-4">Sign out of your Lake of Tears session on this device.</p>
+    <form action="/logout" method="post">
+      <button type="submit" class="inline-flex items-center gap-2 px-4 py-2 bg-red-600/20 hover:bg-red-600/30 border border-red-600/40 text-red-400 text-sm font-medium rounded-md transition-colors">
+        Sign out
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}
