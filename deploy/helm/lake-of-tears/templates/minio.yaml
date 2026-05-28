@@ -105,7 +105,7 @@ spec:
               done
       containers:
         - name: mc
-          image: minio/mc:RELEASE.2023-03-20T23-17-32Z
+          image: minio/mc:RELEASE.2023-01-28T20-29-38Z
           env:
             - name: MINIO_ROOT_USER
               valueFrom:
