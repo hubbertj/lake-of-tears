@@ -25,15 +25,49 @@ lakeui:
 minio:
   persistence:
     size: 50Gi
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
 
 jupyter:
   persistence:
     size: 10Gi
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "512Mi"
 
 superset:
   persistence:
     size: 2Gi
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "512Mi"
 
 airflow:
   persistence:
     size: 5Gi
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "1Gi"
+
+lakeui:
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "256Mi"
+
+backend:
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "256Mi"
+
+postgres:
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "256Mi"
