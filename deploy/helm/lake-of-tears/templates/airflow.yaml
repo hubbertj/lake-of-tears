@@ -28,6 +28,8 @@ spec:
           imagePullPolicy: {{ .Values.airflow.image.pullPolicy }}
           args: ["standalone"]
           env:
+            - name: CONNECTION_CHECK_MAX_COUNT
+              value: "0"
             - name: AIRFLOW__CORE__EXECUTOR
               value: SequentialExecutor
             - name: AIRFLOW__CORE__LOAD_EXAMPLES
