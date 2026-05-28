@@ -25,6 +25,9 @@ Lake of Tears is a self-hosted data platform inspired by Databricks — one URL,
 
 - **Unified UI shell** — Databricks-inspired sidebar with Notebooks, SQL Editor, Dashboards, Pipelines, AI Query, and Data Catalog in one interface
 - **Single entry point** — nginx proxy at port 80; no juggling separate ports or tabs
+- **Authentication** — email/password login, account self-registration, and SSO via Google, GitHub, Microsoft, or any generic OIDC provider (Okta, Keycloak, Auth0, etc.)
+- **Multi-user with roles** — `admin` and `viewer` roles; first registered user becomes admin automatically
+- **Theme toggle** — Light / Dark / Auto (follows OS preference, falls back to time-of-day)
 - S3-compatible object storage via MinIO CE
 - Parquet-native storage partitioned by `year=/month=/day=`
 - DuckDB query engine — run SQL directly over S3, no separate query server required
@@ -46,10 +49,11 @@ Lake of Tears is a self-hosted data platform inspired by Databricks — one URL,
                     ┌──────▼──────┐
                     │    nginx    │  ← single entry point
                     └──────┬──────┘
-           ┌───────┬───────┼───────┬──────────┐
-           ▼       ▼       ▼       ▼          ▼
-        Lake UI  /jupyter/ /superset/ /airflow/  MinIO API
-        (shell)  JupyterLab Superset  Airflow    :9000
+       ┌────────┬──────────┼───────┬──────────┐
+       ▼        ▼          ▼       ▼          ▼
+   /api/    Lake UI  /jupyter/ /superset/ /airflow/
+  Backend   (shell)  JupyterLab Superset   Airflow
+  (auth)                                   MinIO API :9000
 
 ┌──────────────┐    ┌──────────────────────────────────────┐
 │  Data Sources│    │           Lake of Tears               │
@@ -81,17 +85,19 @@ Lake of Tears is a self-hosted data platform inspired by Databricks — one URL,
 git clone https://github.com/hubbertj/lake-of-tears
 cd lake-of-tears
 cp .env.example .env
-# Edit .env with your credentials
+# Edit .env — at minimum set MINIO_ROOT_PASSWORD, AUTH_SECRET_KEY,
+# POSTGRES_AUTH_PASSWORD, and GEMINI_API_KEY
 docker compose up -d
 ```
 
-Open **http://localhost** — the unified Lake UI shell.
+Open **http://localhost** — you'll be redirected to the login page. **Register the first account and you become the admin.** All subsequent registrations are viewers by default; promote them in the admin panel.
 
 All services are accessible from the left sidebar. Direct ports are also available if needed:
 
 | Service | Unified URL | Direct port |
 |---------|-------------|-------------|
 | Lake UI shell | http://localhost | http://localhost:3000 |
+| Auth backend | http://localhost/api/ | http://localhost:8000 |
 | JupyterLab | http://localhost/jupyter/ | http://localhost:8888 |
 | Apache Superset | http://localhost/superset/ | http://localhost:8088 |
 | Apache Airflow | http://localhost/airflow/ | http://localhost:8080 |
@@ -111,6 +117,9 @@ helm install lake-of-tears ./deploy/helm/lake-of-tears \
   --set superset.adminPassword=your-password \
   --set airflow.secretKey=your-secret \
   --set airflow.adminPassword=your-password \
+  --set backend.auth.secretKey=$(python3 -c "import secrets; print(secrets.token_hex(32))") \
+  --set backend.auth.baseUrl=https://lake.example.com \
+  --set postgres.auth.password=your-db-password \
   --set ingress.host=lake.example.com \
   --set ingress.minioConsoleHost=minio.example.com
 ```
@@ -119,6 +128,7 @@ All services are routed through the nginx Ingress controller on a single host:
 
 | Path | Service |
 |------|---------|
+| `lake.example.com/api/` | Auth backend |
 | `lake.example.com/` | Lake UI shell |
 | `lake.example.com/jupyter/` | JupyterLab |
 | `lake.example.com/superset/` | Apache Superset |
@@ -133,6 +143,8 @@ See `deploy/helm/lake-of-tears/values.yaml` for the full list of configurable va
 
 All configuration is driven by environment variables. Copy `.env.example` to `.env` and fill in the required values before starting the stack.
 
+**Core**
+
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `MINIO_ROOT_USER` | yes | — | MinIO root username (5–20 chars) |
@@ -145,14 +157,100 @@ All configuration is driven by environment variables. Copy `.env.example` to `.e
 | `AIRFLOW_PASSWORD` | yes | — | Airflow admin password |
 | `AIRFLOW_SECRET_KEY` | no | auto | Airflow Flask secret key |
 | `MINIO_CONSOLE_URL` | no | `http://localhost:9001` | URL for the "Open MinIO Console" link in the Storage page |
-| `STRIPE_SECRET_KEY` | no | — | Stripe secret key for payments ingestion |
-| `SHOPIFY_STORE_DOMAIN` | no | — | Shopify store domain (e.g. `mystore.myshopify.com`) |
-| `SHOPIFY_ACCESS_TOKEN` | no | — | Shopify Admin API access token |
-| `HUBSPOT_ACCESS_TOKEN` | no | — | HubSpot private app access token |
-| `POSTGRES_DSN` | no | — | PostgreSQL connection string for app DB ingestion |
-| `WEATHER_LAT` | no | `40.7128` | Latitude for Open-Meteo weather ingestion |
-| `WEATHER_LON` | no | `-74.0060` | Longitude for Open-Meteo weather ingestion |
 | `DATALAKE_DATA_DIR` | yes | `~` | Host path for Docker volume mounts |
+
+**Authentication**
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `AUTH_SECRET_KEY` | yes | — | JWT signing secret shared between backend and UI. Generate: `python3 -c "import secrets; print(secrets.token_hex(32))"` |
+| `AUTH_BASE_URL` | no | `http://localhost` | Public URL of the stack — used to build OAuth callback URIs |
+| `AUTH_ENABLED` | no | `true` | Set to `false` to disable login entirely (dev/trusted-network use) |
+| `POSTGRES_AUTH_USER` | no | `lake_auth` | PostgreSQL username for the auth database |
+| `POSTGRES_AUTH_PASSWORD` | yes | — | PostgreSQL password for the auth database |
+
+**SSO Providers** (all optional — configure only what you use)
+
+Register your application at each provider's developer console. The redirect URI for every provider is `{AUTH_BASE_URL}/api/auth/oauth/{provider}/callback`.
+
+| Variable | Provider | Where to get it |
+|---|---|---|
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google | [console.cloud.google.com/apis/credentials](https://console.cloud.google.com/apis/credentials) |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | GitHub | [github.com/settings/developers](https://github.com/settings/developers) |
+| `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` | Microsoft | [portal.azure.com — App registrations](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps) |
+| `MICROSOFT_TENANT_ID` | Microsoft | Your Azure tenant ID, or `common` for any account |
+| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | Generic OIDC | Your identity provider (Okta, Keycloak, Auth0, etc.) |
+| `OIDC_AUTH_URL` / `OIDC_TOKEN_URL` / `OIDC_USERINFO_URL` | Generic OIDC | From your provider's well-known configuration |
+| `OIDC_DISPLAY_NAME` | Generic OIDC | Label shown on the "Continue with …" button (default: `SSO`) |
+
+**Data source credentials** (all optional)
+
+| Variable | Description |
+|---|---|
+| `STRIPE_SECRET_KEY` | Stripe secret key for payments ingestion |
+| `SHOPIFY_STORE_DOMAIN` | Shopify store domain (e.g. `mystore.myshopify.com`) |
+| `SHOPIFY_ACCESS_TOKEN` | Shopify Admin API access token |
+| `HUBSPOT_ACCESS_TOKEN` | HubSpot private app access token |
+| `POSTGRES_DSN` | PostgreSQL DSN for app database ingestion (unrelated to auth DB) |
+| `WEATHER_LAT` / `WEATHER_LON` | Location for Open-Meteo weather ingestion |
+
+---
+
+## Authentication
+
+Lake of Tears uses a dedicated FastAPI backend (`backend/`) for all authentication. JWT tokens are issued as httpOnly cookies and validated by the Lake UI on every request.
+
+### First admin user
+
+The first account registered on a fresh deployment becomes admin — automatically, with no configuration needed. Every subsequent signup (email/password or OAuth) is assigned the `viewer` role. Admins can promote or deactivate users via the user management API (`GET /api/users`, `PATCH /api/users/{id}`).
+
+**Steps:**
+1. Deploy the stack
+2. Open the login page — you'll be redirected automatically if not logged in
+3. Click **Create account**, enter your email and password, and submit
+4. You are now the admin
+
+This works identically for OAuth: if you sign in with Google (for example) before anyone else has registered, that Google account becomes the admin.
+
+### Roles
+
+| Role | Access |
+|------|--------|
+| `admin` | Full access; can change other users' roles and deactivate accounts |
+| `viewer` | Read-only access to the Lake UI and all embedded services |
+
+### SSO setup
+
+SSO buttons appear on the login page automatically for any provider with a `CLIENT_ID` configured. Each provider requires registering a redirect URI:
+
+```
+{AUTH_BASE_URL}/api/auth/oauth/{provider}/callback
+```
+
+For example, with `AUTH_BASE_URL=https://lake.example.com` and Google:
+```
+https://lake.example.com/api/auth/oauth/google/callback
+```
+
+If a user signs in via OAuth with the same email as an existing email/password account, the accounts are automatically linked.
+
+### Disabling auth
+
+For development or trusted internal networks, set `AUTH_ENABLED=false` in `.env`. The login page is bypassed and all routes are open.
+
+---
+
+## Theme
+
+The topbar includes a three-way theme toggle:
+
+| Option | Behaviour |
+|--------|-----------|
+| ☀️ Light | Light content area, dark sidebar |
+| 🌙 Dark | Full dark mode (default) |
+| 🖥️ Auto | Follows OS `prefers-color-scheme`; falls back to time-of-day (dark 7 PM – 7 AM) if OS preference is not set |
+
+Preference is saved to `localStorage` per browser.
 
 ---
 
