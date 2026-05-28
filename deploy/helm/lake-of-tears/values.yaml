@@ -162,7 +162,6 @@ airflow:
     - pyarrow
     - google-genai
     - scikit-learn
-    - "numpy<2"
 
   resources:
     requests:
