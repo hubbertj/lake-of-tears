@@ -45,4 +45,5 @@ CLAUDE.md
 # Docker volumes (local dev)
 minio-data/
 airflow/
+!docker/airflow/
 notebooks/

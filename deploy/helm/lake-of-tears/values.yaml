@@ -139,9 +139,9 @@ superset:
 # ---------------------------------------------------------------------------
 airflow:
   image:
-    repository: apache/airflow
-    tag: 2.10.3-python3.11
-    pullPolicy: IfNotPresent
+    repository: lake-of-tears-airflow
+    tag: latest
+    pullPolicy: Never
 
   # Flask secret key — REQUIRED
   secretKey: ""
@@ -156,12 +156,7 @@ airflow:
     size: 2Gi
 
   # Additional pip packages installed at container startup via _PIP_ADDITIONAL_REQUIREMENTS
-  extraPipPackages:
-    - duckdb
-    - boto3
-    - pyarrow
-    - google-genai
-    - scikit-learn
+  extraPipPackages: []
 
   resources:
     requests:
