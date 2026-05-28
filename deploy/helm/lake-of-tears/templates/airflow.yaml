@@ -103,8 +103,9 @@ spec:
             httpGet:
               path: /health
               port: http
-            initialDelaySeconds: 60
+            initialDelaySeconds: 180
             periodSeconds: 30
+            failureThreshold: 10
           volumeMounts:
             - name: airflow-home
               mountPath: /opt/airflow
