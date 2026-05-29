@@ -442,10 +442,19 @@ async def catalog_create(
     request: Request,
     name: str = Form(...),
     description: str = Form(""),
+    workspace_id: str = Form(""),
 ):
     token = request.cookies.get("lake_token")
     if token:
-        _backend_post("/api/catalogs", token, {"name": name, "description": description or None})
+        _backend_post(
+            "/api/catalogs",
+            token,
+            {
+                "name": name,
+                "description": description or None,
+                "workspace_id": workspace_id or None,
+            },
+        )
     return RedirectResponse(url="/catalog", status_code=302)
 
 
