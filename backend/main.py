@@ -590,7 +590,7 @@ def create_catalog(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    ws = request_workspace(current_user, db)
+    ws = _resolve_workspace(req.workspace_id, current_user, db)
     slug = _unique_catalog_slug(db, _slugify(req.name))
     catalog = Catalog(
         name=req.name.strip(),
@@ -607,9 +607,23 @@ def create_catalog(
     return _catalog_response(catalog, current_user, db)
 
 
-def request_workspace(user: User, db: Session) -> Workspace:
+def _resolve_workspace(workspace_id: str | None, user: User, db: Session) -> Workspace:
+    if workspace_id:
+        ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+        if not ws:
+            raise HTTPException(404, "Workspace not found")
+        if user.role != "superadmin":
+            member = next(
+                (m for m in user.workspace_memberships
+                 if str(m.workspace_id) == workspace_id and m.role == "admin"),
+                None,
+            )
+            if not member:
+                raise HTTPException(403, "Workspace admin access required")
+        return ws
+    # Fallback: first admin workspace, or default for superadmin
     if user.role == "superadmin":
-        ws = db.query(Workspace).filter(Workspace.slug == "default").first()
+        ws = db.query(Workspace).order_by(Workspace.created_at).first()
     else:
         member = next((m for m in user.workspace_memberships if m.role == "admin"), None)
         if not member:

@@ -110,6 +110,7 @@ class UpdateWorkspaceRequest(BaseModel):
 class CreateCatalogRequest(BaseModel):
     name: str
     description: str | None = None
+    workspace_id: str | None = None
 
     @field_validator("name")
     @classmethod
