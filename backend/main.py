@@ -14,12 +14,11 @@ from auth import (
     require_superadmin,
     verify_password,
 )
-from database import engine, get_db
+from database import get_db
 from email_service import send_access_removed, send_access_requested, send_access_reviewed
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from models import (
-    Base,
     Catalog,
     CatalogAccess,
     CatalogSchema,
@@ -62,8 +61,6 @@ from schemas import (
 )
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-
-Base.metadata.create_all(bind=engine)
 
 _DEFAULT_SOFT_DELETE_DAYS = 30
 
