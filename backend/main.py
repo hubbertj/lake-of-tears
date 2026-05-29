@@ -775,7 +775,7 @@ def delete_catalog(
     if grace_days == 0:
         raise HTTPException(
             422,
-            "Soft delete is disabled — use DELETE /api/catalogs/{id}/purge to permanently delete",
+            "Soft delete is disabled — use POST /api/catalogs/{id}/purge to permanently delete",
         )
 
     now = datetime.now(UTC)
@@ -820,7 +820,7 @@ def reactivate_catalog(
     return _catalog_response(catalog, current_user, db)
 
 
-@app.delete("/api/catalogs/{catalog_id}/purge")
+@app.post("/api/catalogs/{catalog_id}/purge")
 def purge_catalog(
     catalog_id: str,
     req: PurgeCatalogRequest,

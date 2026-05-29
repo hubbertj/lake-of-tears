@@ -27,7 +27,7 @@
   {% endif %}
   {% if error %}
   <div class="mb-4 px-4 py-3 rounded-md bg-red-900/30 border border-red-800/50 text-red-400 text-sm">
-    {% if error == 'member_not_found' %}User not found — they must create an account first.{% else %}An error occurred. Please try again.{% endif %}
+    {% if error == 'member_not_found' %}User not found — they must create an account first.{% elif error == 'purge_failed' %}Catalog deletion failed — the name may not have matched or you may not have permission.{% else %}An error occurred. Please try again.{% endif %}
   </div>
   {% endif %}
 

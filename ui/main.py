@@ -668,21 +668,6 @@ def _backend_delete(path: str, token: str) -> bool:
     return False
 
 
-def _backend_delete_json(path: str, token: str, json: dict) -> dict | None:
-    try:
-        with httpx.Client(timeout=5) as client:
-            resp = client.delete(
-                f"{BACKEND_URL}{path}",
-                json=json,
-                headers={"Authorization": f"Bearer {token}"},
-            )
-        if resp.status_code == 200:
-            return resp.json()
-    except Exception:
-        pass
-    return None
-
-
 # ── Settings: Account ─────────────────────────────────────────────────────
 
 
@@ -902,9 +887,16 @@ async def settings_catalog_purge(
     confirm_name: str = Form(...),
 ):
     token = request.cookies.get("lake_token")
+    error = None
     if token:
-        _backend_delete_json(
+        result = _backend_post(
             f"/api/catalogs/{catalog_id}/purge", token, {"confirm_name": confirm_name}
+        )
+        if result is None:
+            error = "purge_failed"
+    if error:
+        return RedirectResponse(
+            url="/settings/workspace?tab=catalogs&error=purge_failed", status_code=302
         )
     return RedirectResponse(url="/settings/workspace?tab=catalogs", status_code=302)
 
