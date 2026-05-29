@@ -66,3 +66,16 @@ def send_access_reviewed(
     has been <strong>{status}</strong>.</p>
     """
     _send([requester_email], subject, body)
+
+
+def send_access_removed(
+    owner_emails: list[str],
+    removing_workspace: str,
+    catalog_name: str,
+) -> None:
+    subject = f"[Lake of Tears] Shared access removed: {removing_workspace} → {catalog_name}"
+    body = f"""
+    <p>Workspace <strong>{removing_workspace}</strong> has removed their shared access
+    to catalog <strong>{catalog_name}</strong>.</p>
+    """
+    _send(owner_emails, subject, body)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import re
 import threading
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 
 from auth import (
     COOKIE_NAME,
@@ -15,7 +15,7 @@ from auth import (
     verify_password,
 )
 from database import engine, get_db
-from email_service import send_access_requested, send_access_reviewed
+from email_service import send_access_removed, send_access_requested, send_access_reviewed
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from models import (
@@ -24,6 +24,7 @@ from models import (
     CatalogAccess,
     CatalogSchema,
     CatalogTable,
+    SystemSetting,
     User,
     Workspace,
     WorkspaceMember,
@@ -40,17 +41,22 @@ from schemas import (
     CreateTableRequest,
     CreateWorkspaceRequest,
     LoginRequest,
+    PurgeCatalogRequest,
     RegisterRequest,
     RequestAccessRequest,
     ReviewAccessRequest,
+    SharedCatalogSettingsItem,
+    SystemSettingResponse,
     UpdateCatalogRequest,
     UpdateMemberRequest,
     UpdateMeRequest,
     UpdateSchemaRequest,
+    UpdateSystemSettingsRequest,
     UpdateTableRequest,
     UpdateUserRequest,
     UpdateWorkspaceRequest,
     UserResponse,
+    WorkspaceCatalogSettingsResponse,
     WorkspaceMemberResponse,
     WorkspaceResponse,
 )
@@ -58,6 +64,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 Base.metadata.create_all(bind=engine)
+
+_DEFAULT_SOFT_DELETE_DAYS = 30
 
 app = FastAPI(title="Lake of Tears Auth API", docs_url=None, redoc_url=None)
 
@@ -69,6 +77,7 @@ def on_startup():
     db = SessionLocal()
     try:
         _backfill_default_catalogs(db)
+        _ensure_system_settings(db)
     finally:
         db.close()
 
@@ -587,15 +596,34 @@ def _owner_emails(db: Session, catalog: Catalog) -> list[str]:
     return [m.user.email for m in members if m.user and m.user.is_active]
 
 
+def _get_soft_delete_days(db: Session) -> int:
+    setting = (
+        db.query(SystemSetting).filter(SystemSetting.key == "catalog_soft_delete_days").first()
+    )
+    if setting is not None and setting.value is not None:
+        return setting.value
+    return _DEFAULT_SOFT_DELETE_DAYS
+
+
+def _ensure_system_settings(db: Session) -> None:
+    if not db.query(SystemSetting).filter(SystemSetting.key == "catalog_soft_delete_days").first():
+        db.add(SystemSetting(key="catalog_soft_delete_days", value=_DEFAULT_SOFT_DELETE_DAYS))
+        db.commit()
+
+
 def _catalog_response(catalog: Catalog, user: User, db: Session) -> CatalogResponse:
     access = _caller_access(db, catalog, user)
+    owner_ws_name = catalog.owner_workspace.name if catalog.owner_workspace else None
     return CatalogResponse(
         id=catalog.id,
         name=catalog.name,
         slug=catalog.slug,
         description=catalog.description,
         owner_workspace_id=catalog.owner_workspace_id,
+        owner_workspace_name=owner_ws_name,
         created_at=catalog.created_at,
+        deleted_at=catalog.deleted_at,
+        scheduled_purge_at=catalog.scheduled_purge_at,
         schemas=[
             CatalogSchemaResponse(
                 id=s.id,
@@ -619,18 +647,27 @@ def _catalog_response(catalog: Catalog, user: User, db: Session) -> CatalogRespo
 @app.get("/api/catalogs", response_model=list[CatalogResponse])
 def list_catalogs(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role == "superadmin":
-        catalogs = db.query(Catalog).order_by(Catalog.created_at).all()
+        catalogs = (
+            db.query(Catalog)
+            .filter(Catalog.deleted_at.is_(None))
+            .order_by(Catalog.created_at)
+            .all()
+        )
     else:
         ws_ids = [m.workspace_id for m in current_user.workspace_memberships]
         shared_ids = db.query(CatalogAccess.catalog_id).filter(
             CatalogAccess.workspace_id.in_(ws_ids),
             CatalogAccess.status == "approved",
+            CatalogAccess.suspended.is_(False),
         )
         from sqlalchemy import or_
 
         catalogs = (
             db.query(Catalog)
-            .filter(or_(Catalog.owner_workspace_id.in_(ws_ids), Catalog.id.in_(shared_ids)))
+            .filter(
+                or_(Catalog.owner_workspace_id.in_(ws_ids), Catalog.id.in_(shared_ids)),
+                Catalog.deleted_at.is_(None),
+            )
             .order_by(Catalog.created_at)
             .all()
         )
@@ -722,15 +759,88 @@ def update_catalog(
     return _catalog_response(catalog, current_user, db)
 
 
-@app.delete("/api/catalogs/{catalog_id}")
+@app.delete("/api/catalogs/{catalog_id}", response_model=CatalogResponse)
 def delete_catalog(
     catalog_id: str,
     db: Session = Depends(get_db),
-    _: User = Depends(require_superadmin),
+    current_user: User = Depends(get_current_user),
 ):
     catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
     if not catalog:
         raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "owner")
+    if catalog.deleted_at is not None:
+        raise HTTPException(409, "Catalog is already pending deletion")
+    grace_days = _get_soft_delete_days(db)
+    if grace_days == 0:
+        raise HTTPException(
+            422,
+            "Soft delete is disabled — use DELETE /api/catalogs/{id}/purge to permanently delete",
+        )
+
+    now = datetime.now(UTC)
+    catalog.deleted_at = now
+    catalog.scheduled_purge_at = now + timedelta(days=grace_days)
+
+    # Suspend all approved access grants for other workspaces
+    db.query(CatalogAccess).filter(
+        CatalogAccess.catalog_id == catalog.id,
+        CatalogAccess.status == "approved",
+    ).update({"suspended": True})
+
+    db.commit()
+    db.refresh(catalog)
+    return _catalog_response(catalog, current_user, db)
+
+
+@app.post("/api/catalogs/{catalog_id}/reactivate", response_model=CatalogResponse)
+def reactivate_catalog(
+    catalog_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "owner")
+    if catalog.deleted_at is None:
+        raise HTTPException(409, "Catalog is not pending deletion")
+
+    catalog.deleted_at = None
+    catalog.scheduled_purge_at = None
+
+    # Restore suspended access grants
+    db.query(CatalogAccess).filter(
+        CatalogAccess.catalog_id == catalog.id,
+        CatalogAccess.suspended.is_(True),
+    ).update({"suspended": False})
+
+    db.commit()
+    db.refresh(catalog)
+    return _catalog_response(catalog, current_user, db)
+
+
+@app.delete("/api/catalogs/{catalog_id}/purge")
+def purge_catalog(
+    catalog_id: str,
+    req: PurgeCatalogRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "owner")
+
+    # Workspace admins can only purge soft-deleted catalogs; superadmins can purge any
+    if current_user.role != "superadmin" and catalog.deleted_at is None:
+        raise HTTPException(
+            422, "Catalog must be in pending-deletion state before purging — delete it first"
+        )
+
+    if req.confirm_name != catalog.name:
+        raise HTTPException(422, "Catalog name confirmation does not match")
+
     db.delete(catalog)
     db.commit()
     return {"ok": True}
@@ -1113,12 +1223,160 @@ def workspace_catalogs(
     from sqlalchemy import or_
 
     shared_ids = db.query(CatalogAccess.catalog_id).filter(
-        CatalogAccess.workspace_id == workspace_id, CatalogAccess.status == "approved"
+        CatalogAccess.workspace_id == workspace_id,
+        CatalogAccess.status == "approved",
+        CatalogAccess.suspended.is_(False),
     )
     catalogs = (
         db.query(Catalog)
-        .filter(or_(Catalog.owner_workspace_id == workspace_id, Catalog.id.in_(shared_ids)))
+        .filter(
+            or_(Catalog.owner_workspace_id == workspace_id, Catalog.id.in_(shared_ids)),
+            Catalog.deleted_at.is_(None),
+        )
         .order_by(Catalog.created_at)
         .all()
     )
     return [_catalog_response(c, current_user, db) for c in catalogs]
+
+
+@app.get(
+    "/api/workspaces/{workspace_id}/settings/catalogs",
+    response_model=WorkspaceCatalogSettingsResponse,
+)
+def workspace_catalog_settings(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+    if current_user.role != "superadmin":
+        member = next(
+            (m for m in current_user.workspace_memberships if str(m.workspace_id) == workspace_id),
+            None,
+        )
+        if not member:
+            raise HTTPException(403, "Not a member of this workspace")
+
+    owned = (
+        db.query(Catalog)
+        .filter(Catalog.owner_workspace_id == workspace_id)
+        .order_by(Catalog.deleted_at.is_(None).desc(), Catalog.name)
+        .all()
+    )
+
+    access_grants = (
+        db.query(CatalogAccess)
+        .filter(
+            CatalogAccess.workspace_id == workspace_id,
+            CatalogAccess.status.in_(["pending", "approved"]),
+        )
+        .all()
+    )
+    shared = []
+    for grant in access_grants:
+        cat = grant.catalog
+        owner_ws = cat.owner_workspace if cat else None
+        shared.append(
+            SharedCatalogSettingsItem(
+                access_id=grant.id,
+                catalog_id=grant.catalog_id,
+                catalog_name=cat.name if cat else "—",
+                owner_workspace_id=grant.catalog.owner_workspace_id if cat else workspace_id,
+                owner_workspace_name=owner_ws.name if owner_ws else None,
+                status=grant.status,
+                suspended=grant.suspended,
+            )
+        )
+
+    return WorkspaceCatalogSettingsResponse(
+        owned=[_catalog_response(c, current_user, db) for c in owned],
+        shared=shared,
+    )
+
+
+@app.delete("/api/workspaces/{workspace_id}/catalogs/{catalog_id}/shared")
+def remove_shared_catalog(
+    workspace_id: str,
+    catalog_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+    if current_user.role != "superadmin":
+        member = next(
+            (
+                m
+                for m in current_user.workspace_memberships
+                if str(m.workspace_id) == workspace_id and m.role == "admin"
+            ),
+            None,
+        )
+        if not member:
+            raise HTTPException(403, "Workspace admin access required")
+
+    grant = (
+        db.query(CatalogAccess)
+        .filter(
+            CatalogAccess.workspace_id == workspace_id,
+            CatalogAccess.catalog_id == catalog_id,
+        )
+        .first()
+    )
+    if not grant:
+        raise HTTPException(404, "Shared catalog not found")
+
+    catalog = grant.catalog
+    catalog_name = catalog.name if catalog else "Unknown"
+    owner_emails = _owner_emails(db, catalog) if catalog else []
+    removing_ws_name = ws.name
+
+    db.delete(grant)
+    db.commit()
+
+    threading.Thread(
+        target=send_access_removed,
+        args=(owner_emails, removing_ws_name, catalog_name),
+        daemon=True,
+    ).start()
+
+    return {"ok": True}
+
+
+# ── Admin: System Settings ────────────────────────────────────────────────────
+
+
+@app.get("/api/admin/settings", response_model=SystemSettingResponse)
+def get_admin_settings(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superadmin),
+):
+    return SystemSettingResponse(catalog_soft_delete_days=_get_soft_delete_days(db))
+
+
+@app.patch("/api/admin/settings", response_model=SystemSettingResponse)
+def update_admin_settings(
+    req: UpdateSystemSettingsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_superadmin),
+):
+    setting = (
+        db.query(SystemSetting).filter(SystemSetting.key == "catalog_soft_delete_days").first()
+    )
+    if setting:
+        setting.value = req.catalog_soft_delete_days
+        setting.updated_at = datetime.now(UTC)
+        setting.updated_by = current_user.id
+    else:
+        db.add(
+            SystemSetting(
+                key="catalog_soft_delete_days",
+                value=req.catalog_soft_delete_days,
+                updated_by=current_user.id,
+            )
+        )
+    db.commit()
+    return SystemSettingResponse(catalog_soft_delete_days=req.catalog_soft_delete_days)

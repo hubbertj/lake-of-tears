@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from database import Base
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -104,6 +104,10 @@ class Catalog(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    scheduled_purge_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     schemas: Mapped[list["CatalogSchema"]] = relationship(
         back_populates="catalog", cascade="all, delete-orphan", order_by="CatalogSchema.name"
@@ -111,6 +115,7 @@ class Catalog(Base):
     access_grants: Mapped[list["CatalogAccess"]] = relationship(
         back_populates="catalog", cascade="all, delete-orphan"
     )
+    owner_workspace: Mapped["Workspace"] = relationship(foreign_keys=[owner_workspace_id])
 
 
 class CatalogSchema(Base):
@@ -172,6 +177,7 @@ class CatalogAccess(Base):
     mode: Mapped[str] = mapped_column(String(10), nullable=False, default="read")
     # 'pending' | 'approved' | 'rejected'
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    suspended: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     requested_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
@@ -186,3 +192,16 @@ class CatalogAccess(Base):
     catalog: Mapped["Catalog"] = relationship(back_populates="access_grants")
     workspace: Mapped["Workspace"] = relationship(foreign_keys=[workspace_id])
     requester: Mapped["User"] = relationship(foreign_keys=[requested_by])
+
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )

@@ -668,6 +668,21 @@ def _backend_delete(path: str, token: str) -> bool:
     return False
 
 
+def _backend_delete_json(path: str, token: str, json: dict) -> dict | None:
+    try:
+        with httpx.Client(timeout=5) as client:
+            resp = client.delete(
+                f"{BACKEND_URL}{path}",
+                json=json,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+    return None
+
+
 # ── Settings: Account ─────────────────────────────────────────────────────
 
 
@@ -698,10 +713,14 @@ async def settings_workspace_get(request: Request):
     ws = request.state.workspace
     token = request.cookies.get("lake_token")
     members = []
+    catalog_settings = {"owned": [], "shared": []}
     error = request.query_params.get("error")
     saved = request.query_params.get("saved")
     if ws and token:
         members = _backend_get(f"/api/workspaces/{ws['id']}/members", token) or []
+        catalog_settings = (
+            _backend_get(f"/api/workspaces/{ws['id']}/settings/catalogs", token) or catalog_settings
+        )
     return templates.TemplateResponse(
         "settings/workspace.html",
         {
@@ -709,6 +728,7 @@ async def settings_workspace_get(request: Request):
             "page": "settings_workspace",
             "members": members,
             "workspace": ws,
+            "catalog_settings": catalog_settings,
             "error": error,
             "saved": saved,
         },
@@ -784,6 +804,7 @@ async def settings_admin_get(request: Request):
     token = request.cookies.get("lake_token")
     users_list = _backend_get("/api/users", token) or []
     all_ws = _backend_get("/api/workspaces", token) or []
+    admin_settings = _backend_get("/api/admin/settings", token) or {"catalog_soft_delete_days": 30}
     return templates.TemplateResponse(
         "settings/admin.html",
         {
@@ -791,6 +812,7 @@ async def settings_admin_get(request: Request):
             "page": "settings_admin",
             "users": users_list,
             "workspaces": all_ws,
+            "admin_settings": admin_settings,
             "saved": request.query_params.get("saved"),
         },
     )
@@ -836,6 +858,64 @@ async def settings_admin_create_workspace(
     token = request.cookies.get("lake_token")
     _backend_post("/api/workspaces", token, {"name": name, "description": description})
     return RedirectResponse(url="/settings/admin?saved=1", status_code=302)
+
+
+@app.post("/settings/admin/catalog-settings")
+async def settings_admin_catalog_settings(
+    request: Request,
+    catalog_soft_delete_days: int = Form(...),
+):
+    user = request.state.user
+    if not user or user.get("role") != "superadmin":
+        return RedirectResponse(url="/", status_code=302)
+    token = request.cookies.get("lake_token")
+    _backend_patch(
+        "/api/admin/settings", token, {"catalog_soft_delete_days": catalog_soft_delete_days}
+    )
+    return RedirectResponse(url="/settings/admin?saved=1", status_code=302)
+
+
+# ── Settings: Workspace catalog management ────────────────────────────────
+
+
+@app.post("/settings/workspace/catalogs/{catalog_id}/delete")
+async def settings_catalog_soft_delete(request: Request, catalog_id: str):
+    ws = request.state.workspace
+    token = request.cookies.get("lake_token")
+    if ws and token:
+        _backend_delete(f"/api/catalogs/{catalog_id}", token)
+    return RedirectResponse(url="/settings/workspace?tab=catalogs", status_code=302)
+
+
+@app.post("/settings/workspace/catalogs/{catalog_id}/reactivate")
+async def settings_catalog_reactivate(request: Request, catalog_id: str):
+    token = request.cookies.get("lake_token")
+    if token:
+        _backend_post(f"/api/catalogs/{catalog_id}/reactivate", token, {})
+    return RedirectResponse(url="/settings/workspace?tab=catalogs", status_code=302)
+
+
+@app.post("/settings/workspace/catalogs/{catalog_id}/purge")
+async def settings_catalog_purge(
+    request: Request,
+    catalog_id: str,
+    confirm_name: str = Form(...),
+):
+    token = request.cookies.get("lake_token")
+    if token:
+        _backend_delete_json(
+            f"/api/catalogs/{catalog_id}/purge", token, {"confirm_name": confirm_name}
+        )
+    return RedirectResponse(url="/settings/workspace?tab=catalogs", status_code=302)
+
+
+@app.post("/settings/workspace/catalogs/{catalog_id}/remove-shared")
+async def settings_catalog_remove_shared(request: Request, catalog_id: str):
+    ws = request.state.workspace
+    token = request.cookies.get("lake_token")
+    if ws and token:
+        _backend_delete(f"/api/workspaces/{ws['id']}/catalogs/{catalog_id}/shared", token)
+    return RedirectResponse(url="/settings/workspace?tab=catalogs", status_code=302)
 
 
 @app.get("/health")
