@@ -14,6 +14,7 @@ import jwt
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from google import genai
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -43,6 +44,7 @@ SOURCE_LABELS = {
 
 app = FastAPI(title="Lake of Tears")
 templates = Jinja2Templates(directory=Path(__file__).parent / "templates")
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 _PUBLIC_PREFIXES = ("/login", "/logout", "/api/", "/health")
 _WORKSPACE_COOKIE = "lake_workspace_id"
@@ -421,11 +423,35 @@ async def home(request: Request):
 
 @app.get("/catalog", response_class=HTMLResponse)
 async def catalog(request: Request):
-    data = _get_catalog_data()
+    token = request.cookies.get("lake_token")
+    ws = request.state.workspace
+    catalogs = []
+    if token and ws:
+        catalogs = _backend_get(f"/api/workspaces/{ws['id']}/catalogs", token) or []
+    elif token:
+        catalogs = _backend_get("/api/catalogs", token) or []
     return templates.TemplateResponse(
         "catalog.html",
-        {"request": request, "data": data, "page": "catalog"},
+        {"request": request, "catalogs": catalogs, "page": "catalog"},
     )
+
+
+@app.post("/catalog/create")
+async def catalog_create(
+    request: Request,
+    name: str = Form(...),
+    description: str = Form(""),
+):
+    token = request.cookies.get("lake_token")
+    if token:
+        _backend_post("/api/catalogs", token, {"name": name, "description": description or None})
+    return RedirectResponse(url="/catalog", status_code=302)
+
+
+@app.post("/catalog/refresh-schema/{table_id}")
+async def catalog_refresh_schema(request: Request, table_id: str):
+    # placeholder — schema refresh is triggered via the nightly DAG or manually
+    return RedirectResponse(url="/catalog", status_code=302)
 
 
 @app.get("/storage", response_class=HTMLResponse)

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Boolean, DateTime, ForeignKey, Text, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, Text, UniqueConstraint, Enum as SAEnum
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database import Base
 
@@ -80,3 +80,105 @@ class WorkspaceMember(Base):
 
     workspace: Mapped["Workspace"] = relationship(back_populates="members")
     user: Mapped["User"] = relationship(back_populates="workspace_memberships")
+
+
+# ── Catalog ───────────────────────────────────────────────────────────────────
+
+class Catalog(Base):
+    __tablename__ = "catalogs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    owner_workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    schemas: Mapped[list["CatalogSchema"]] = relationship(
+        back_populates="catalog", cascade="all, delete-orphan", order_by="CatalogSchema.name"
+    )
+    access_grants: Mapped[list["CatalogAccess"]] = relationship(
+        back_populates="catalog", cascade="all, delete-orphan"
+    )
+
+
+class CatalogSchema(Base):
+    __tablename__ = "catalog_schemas"
+    __table_args__ = (UniqueConstraint("catalog_id", "slug", name="uq_catalog_schema_slug"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    catalog_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("catalogs.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 'bronze' | 'silver' | 'gold' | 'custom'
+    tier: Mapped[str] = mapped_column(String(20), nullable=False, default="custom")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    catalog: Mapped["Catalog"] = relationship(back_populates="schemas")
+    tables: Mapped[list["CatalogTable"]] = relationship(
+        back_populates="schema", cascade="all, delete-orphan", order_by="CatalogTable.name"
+    )
+
+
+class CatalogTable(Base):
+    __tablename__ = "catalog_tables"
+    __table_args__ = (UniqueConstraint("schema_id", "slug", name="uq_schema_table_slug"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    schema_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("catalog_schemas.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    s3_path_pattern: Mapped[str | None] = mapped_column(Text, nullable=True)
+    column_defs: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)
+    schema_drift: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    schema: Mapped["CatalogSchema"] = relationship(back_populates="tables")
+
+
+class CatalogAccess(Base):
+    __tablename__ = "catalog_access"
+    __table_args__ = (UniqueConstraint("catalog_id", "workspace_id", name="uq_catalog_access"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    catalog_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("catalogs.id", ondelete="CASCADE"), nullable=False
+    )
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
+    )
+    # 'read' | 'write'
+    mode: Mapped[str] = mapped_column(String(10), nullable=False, default="read")
+    # 'pending' | 'approved' | 'rejected'
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    catalog: Mapped["Catalog"] = relationship(back_populates="access_grants")
+    workspace: Mapped["Workspace"] = relationship(foreign_keys=[workspace_id])
+    requester: Mapped["User"] = relationship(foreign_keys=[requested_by])

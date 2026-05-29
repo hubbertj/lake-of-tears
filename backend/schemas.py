@@ -101,3 +101,144 @@ class UpdateMemberRequest(BaseModel):
 class UpdateWorkspaceRequest(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+
+
+# ── Catalogs ──────────────────────────────────────────────────────────────────
+
+class CreateCatalogRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def name_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Catalog name cannot be empty")
+        return v
+
+
+class UpdateCatalogRequest(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class CreateSchemaRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def name_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Schema name cannot be empty")
+        return v
+
+
+class UpdateSchemaRequest(BaseModel):
+    description: Optional[str] = None
+
+
+class ColumnDef(BaseModel):
+    name: str
+    type: str
+    description: Optional[str] = None
+    deprecated: bool = False
+
+
+class CreateTableRequest(BaseModel):
+    name: str
+    description: Optional[str] = None
+    s3_path_pattern: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def name_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Table name cannot be empty")
+        return v
+
+
+class UpdateTableRequest(BaseModel):
+    description: Optional[str] = None
+    s3_path_pattern: Optional[str] = None
+    column_defs: Optional[list[ColumnDef]] = None
+
+
+class CatalogTableResponse(BaseModel):
+    id: uuid.UUID
+    schema_id: uuid.UUID
+    name: str
+    slug: str
+    description: Optional[str]
+    s3_path_pattern: Optional[str]
+    column_defs: Optional[list]
+    schema_drift: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class CatalogSchemaResponse(BaseModel):
+    id: uuid.UUID
+    catalog_id: uuid.UUID
+    name: str
+    slug: str
+    description: Optional[str]
+    tier: str
+    created_at: datetime
+    tables: list[CatalogTableResponse] = []
+
+    model_config = {"from_attributes": True}
+
+
+class CatalogResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    description: Optional[str]
+    owner_workspace_id: uuid.UUID
+    created_at: datetime
+    schemas: list[CatalogSchemaResponse] = []
+    my_access: Optional[str] = None  # 'owner' | 'write' | 'read' | None
+
+    model_config = {"from_attributes": True}
+
+
+class RequestAccessRequest(BaseModel):
+    mode: str = "read"
+    message: Optional[str] = None
+
+    @field_validator("mode")
+    @classmethod
+    def valid_mode(cls, v: str) -> str:
+        if v not in ("read", "write"):
+            raise ValueError("mode must be 'read' or 'write'")
+        return v
+
+
+class ReviewAccessRequest(BaseModel):
+    status: str
+
+    @field_validator("status")
+    @classmethod
+    def valid_status(cls, v: str) -> str:
+        if v not in ("approved", "rejected"):
+            raise ValueError("status must be 'approved' or 'rejected'")
+        return v
+
+
+class CatalogAccessResponse(BaseModel):
+    id: uuid.UUID
+    catalog_id: uuid.UUID
+    workspace_id: uuid.UUID
+    workspace_name: Optional[str] = None
+    mode: str
+    status: str
+    requested_by_email: Optional[str] = None
+    requested_at: datetime
+    reviewed_at: Optional[datetime]
+
+    model_config = {"from_attributes": True}
