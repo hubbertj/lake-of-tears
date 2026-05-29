@@ -72,6 +72,7 @@ def on_startup():
     finally:
         db.close()
 
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[os.getenv("AUTH_BASE_URL", "http://localhost")],
@@ -643,10 +644,14 @@ def create_catalog(
     current_user: User = Depends(get_current_user),
 ):
     ws = _resolve_workspace(req.workspace_id, current_user, db)
-    if db.query(Catalog).filter(
-        Catalog.owner_workspace_id == ws.id,
-        func.lower(Catalog.name) == req.name.strip().lower(),
-    ).first():
+    if (
+        db.query(Catalog)
+        .filter(
+            Catalog.owner_workspace_id == ws.id,
+            func.lower(Catalog.name) == req.name.strip().lower(),
+        )
+        .first()
+    ):
         raise HTTPException(409, "A catalog with that name already exists in this workspace")
     slug = _unique_catalog_slug(db, _slugify(req.name))
     catalog = Catalog(
