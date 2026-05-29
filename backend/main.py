@@ -1,13 +1,10 @@
 from __future__ import annotations
+
 import os
-
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
-
 import re
 import threading
-from email_service import send_access_requested, send_access_reviewed
+from datetime import UTC
+
 from auth import (
     COOKIE_NAME,
     TOKEN_MAX_AGE,
@@ -15,11 +12,22 @@ from auth import (
     get_current_user,
     hash_password,
     require_superadmin,
-    require_workspace_admin,
     verify_password,
 )
 from database import engine, get_db
-from models import Base, OAuthAccount, User, Workspace, WorkspaceMember, Catalog, CatalogSchema, CatalogTable, CatalogAccess
+from email_service import send_access_requested, send_access_reviewed
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from models import (
+    Base,
+    Catalog,
+    CatalogAccess,
+    CatalogSchema,
+    CatalogTable,
+    User,
+    Workspace,
+    WorkspaceMember,
+)
 from oauth import enabled_providers, get_oauth_redirect, handle_oauth_callback
 from schemas import (
     AddMemberRequest,
@@ -46,6 +54,7 @@ from schemas import (
     WorkspaceMemberResponse,
     WorkspaceResponse,
 )
+from sqlalchemy.orm import Session
 
 Base.metadata.create_all(bind=engine)
 
@@ -61,6 +70,7 @@ app.add_middleware(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _slugify(name: str) -> str:
     slug = re.sub(r"[^\w\s-]", "", name.lower())
@@ -86,7 +96,14 @@ def _create_default_workspace(db: Session, user: User) -> Workspace:
 
 
 def _set_auth_cookie(response: Response, user: User) -> None:
-    token = create_token({"sub": str(user.id), "email": user.email, "role": user.role, "display_name": user.display_name or ""})
+    token = create_token(
+        {
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            "display_name": user.display_name or "",
+        }
+    )
     response.set_cookie(COOKIE_NAME, token, max_age=TOKEN_MAX_AGE, httponly=True, samesite="lax")
 
 
@@ -137,7 +154,11 @@ def register(req: RegisterRequest, response: Response, db: Session = Depends(get
 @app.post("/api/auth/login")
 def login(req: LoginRequest, response: Response, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == req.email).first()
-    if not user or not user.hashed_password or not verify_password(req.password, user.hashed_password):
+    if (
+        not user
+        or not user.hashed_password
+        or not verify_password(req.password, user.hashed_password)
+    ):
         raise HTTPException(401, "Invalid email or password")
     if not user.is_active:
         raise HTTPException(403, "Account disabled — contact your superadmin")
@@ -188,7 +209,9 @@ def oauth_start(provider: str, request: Request, response: Response):
 
 
 @app.get("/api/auth/oauth/{provider}/callback")
-def oauth_callback(provider: str, request: Request, response: Response, db: Session = Depends(get_db)):
+def oauth_callback(
+    provider: str, request: Request, response: Response, db: Session = Depends(get_db)
+):
     return handle_oauth_callback(provider, request, response, db)
 
 
@@ -292,7 +315,9 @@ def update_workspace(
         raise HTTPException(404, "Workspace not found")
     # Must be workspace admin or superadmin
     if current_user.role != "superadmin":
-        member = next((m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None)
+        member = next(
+            (m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None
+        )
         if not member:
             raise HTTPException(403, "Workspace admin access required")
     if req.name is not None:
@@ -357,7 +382,9 @@ def add_member(
     if not ws:
         raise HTTPException(404, "Workspace not found")
     if current_user.role != "superadmin":
-        member_check = next((m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None)
+        member_check = next(
+            (m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None
+        )
         if not member_check:
             raise HTTPException(403, "Workspace admin access required")
 
@@ -365,7 +392,9 @@ def add_member(
     if not target:
         raise HTTPException(404, "User not found — they must register first")
 
-    existing = db.query(WorkspaceMember).filter_by(workspace_id=workspace_id, user_id=target.id).first()
+    existing = (
+        db.query(WorkspaceMember).filter_by(workspace_id=workspace_id, user_id=target.id).first()
+    )
     if existing:
         existing.role = req.role
     else:
@@ -386,7 +415,9 @@ def update_member(
     if not ws:
         raise HTTPException(404, "Workspace not found")
     if current_user.role != "superadmin":
-        admin_check = next((m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None)
+        admin_check = next(
+            (m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None
+        )
         if not admin_check:
             raise HTTPException(403, "Workspace admin access required")
 
@@ -411,7 +442,9 @@ def remove_member(
     if not ws:
         raise HTTPException(404, "Workspace not found")
     if current_user.role != "superadmin":
-        admin_check = next((m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None)
+        admin_check = next(
+            (m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None
+        )
         if not admin_check:
             raise HTTPException(403, "Workspace admin access required")
 
@@ -453,12 +486,14 @@ def _unique_catalog_slug(db: Session, base: str) -> str:
 
 def _seed_medallion_schemas(db: Session, catalog: Catalog) -> None:
     for tier in _MEDALLION_TIERS:
-        db.add(CatalogSchema(
-            catalog_id=catalog.id,
-            name=tier.capitalize(),
-            slug=tier,
-            tier=tier,
-        ))
+        db.add(
+            CatalogSchema(
+                catalog_id=catalog.id,
+                name=tier.capitalize(),
+                slug=tier,
+                tier=tier,
+            )
+        )
 
 
 def _caller_access(db: Session, catalog: Catalog, user: User) -> str | None:
@@ -527,21 +562,19 @@ def _catalog_response(catalog: Catalog, user: User, db: Session) -> CatalogRespo
 
 # ── Catalog CRUD ──────────────────────────────────────────────────────────────
 
+
 @app.get("/api/catalogs", response_model=list[CatalogResponse])
 def list_catalogs(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role == "superadmin":
         catalogs = db.query(Catalog).order_by(Catalog.created_at).all()
     else:
         ws_ids = [m.workspace_id for m in current_user.workspace_memberships]
-        owned = db.query(Catalog).filter(Catalog.owner_workspace_id.in_(ws_ids))
-        shared_ids = (
-            db.query(CatalogAccess.catalog_id)
-            .filter(
-                CatalogAccess.workspace_id.in_(ws_ids),
-                CatalogAccess.status == "approved",
-            )
+        shared_ids = db.query(CatalogAccess.catalog_id).filter(
+            CatalogAccess.workspace_id.in_(ws_ids),
+            CatalogAccess.status == "approved",
         )
         from sqlalchemy import or_
+
         catalogs = (
             db.query(Catalog)
             .filter(or_(Catalog.owner_workspace_id.in_(ws_ids), Catalog.id.in_(shared_ids)))
@@ -578,9 +611,7 @@ def request_workspace(user: User, db: Session) -> Workspace:
     if user.role == "superadmin":
         ws = db.query(Workspace).filter(Workspace.slug == "default").first()
     else:
-        member = next(
-            (m for m in user.workspace_memberships if m.role == "admin"), None
-        )
+        member = next((m for m in user.workspace_memberships if m.role == "admin"), None)
         if not member:
             raise HTTPException(403, "Workspace admin access required to create a catalog")
         ws = db.query(Workspace).filter(Workspace.id == member.workspace_id).first()
@@ -638,6 +669,7 @@ def delete_catalog(
 
 # ── Schema CRUD ───────────────────────────────────────────────────────────────
 
+
 @app.get("/api/catalogs/{catalog_id}/schemas", response_model=list[CatalogSchemaResponse])
 def list_schemas(
     catalog_id: str,
@@ -684,9 +716,14 @@ def create_schema(
     db.commit()
     db.refresh(schema)
     return CatalogSchemaResponse(
-        id=schema.id, catalog_id=schema.catalog_id, name=schema.name,
-        slug=schema.slug, description=schema.description, tier=schema.tier,
-        created_at=schema.created_at, tables=[],
+        id=schema.id,
+        catalog_id=schema.catalog_id,
+        name=schema.name,
+        slug=schema.slug,
+        description=schema.description,
+        tier=schema.tier,
+        created_at=schema.created_at,
+        tables=[],
     )
 
 
@@ -712,8 +749,12 @@ def update_schema(
     db.commit()
     db.refresh(schema)
     return CatalogSchemaResponse(
-        id=schema.id, catalog_id=schema.catalog_id, name=schema.name,
-        slug=schema.slug, description=schema.description, tier=schema.tier,
+        id=schema.id,
+        catalog_id=schema.catalog_id,
+        name=schema.name,
+        slug=schema.slug,
+        description=schema.description,
+        tier=schema.tier,
         created_at=schema.created_at,
         tables=[CatalogTableResponse.model_validate(t) for t in schema.tables],
     )
@@ -742,7 +783,11 @@ def delete_schema(
 
 # ── Table CRUD ────────────────────────────────────────────────────────────────
 
-@app.get("/api/catalogs/{catalog_id}/schemas/{schema_id}/tables", response_model=list[CatalogTableResponse])
+
+@app.get(
+    "/api/catalogs/{catalog_id}/schemas/{schema_id}/tables",
+    response_model=list[CatalogTableResponse],
+)
 def list_tables(
     catalog_id: str,
     schema_id: str,
@@ -759,7 +804,9 @@ def list_tables(
     return [CatalogTableResponse.model_validate(t) for t in schema.tables]
 
 
-@app.post("/api/catalogs/{catalog_id}/schemas/{schema_id}/tables", response_model=CatalogTableResponse)
+@app.post(
+    "/api/catalogs/{catalog_id}/schemas/{schema_id}/tables", response_model=CatalogTableResponse
+)
 def create_table(
     catalog_id: str,
     schema_id: str,
@@ -791,7 +838,10 @@ def create_table(
     return CatalogTableResponse.model_validate(table)
 
 
-@app.patch("/api/catalogs/{catalog_id}/schemas/{schema_id}/tables/{table_id}", response_model=CatalogTableResponse)
+@app.patch(
+    "/api/catalogs/{catalog_id}/schemas/{schema_id}/tables/{table_id}",
+    response_model=CatalogTableResponse,
+)
 def update_table(
     catalog_id: str,
     schema_id: str,
@@ -840,6 +890,7 @@ def delete_table(
 
 # ── Access management ─────────────────────────────────────────────────────────
 
+
 @app.get("/api/catalogs/{catalog_id}/access", response_model=list[CatalogAccessResponse])
 def list_access(
     catalog_id: str,
@@ -854,18 +905,22 @@ def list_access(
     result = []
     for g in grants:
         ws = db.query(Workspace).filter(Workspace.id == g.workspace_id).first()
-        requester = db.query(User).filter(User.id == g.requested_by).first() if g.requested_by else None
-        result.append(CatalogAccessResponse(
-            id=g.id,
-            catalog_id=g.catalog_id,
-            workspace_id=g.workspace_id,
-            workspace_name=ws.name if ws else None,
-            mode=g.mode,
-            status=g.status,
-            requested_by_email=requester.email if requester else None,
-            requested_at=g.requested_at,
-            reviewed_at=g.reviewed_at,
-        ))
+        requester = (
+            db.query(User).filter(User.id == g.requested_by).first() if g.requested_by else None
+        )
+        result.append(
+            CatalogAccessResponse(
+                id=g.id,
+                catalog_id=g.catalog_id,
+                workspace_id=g.workspace_id,
+                workspace_name=ws.name if ws else None,
+                mode=g.mode,
+                status=g.status,
+                requested_by_email=requester.email if requester else None,
+                requested_at=g.requested_at,
+                reviewed_at=g.reviewed_at,
+            )
+        )
     return result
 
 
@@ -898,15 +953,19 @@ def request_access(
         existing.mode = req.mode
         existing.status = "pending"
         existing.requested_by = current_user.id
-        existing.requested_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+        existing.requested_at = __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc
+        )
     else:
-        db.add(CatalogAccess(
-            catalog_id=catalog.id,
-            workspace_id=ws_id,
-            mode=req.mode,
-            status="pending",
-            requested_by=current_user.id,
-        ))
+        db.add(
+            CatalogAccess(
+                catalog_id=catalog.id,
+                workspace_id=ws_id,
+                mode=req.mode,
+                status="pending",
+                requested_by=current_user.id,
+            )
+        )
     db.commit()
 
     owner_emails = _owner_emails(db, catalog)
@@ -939,11 +998,14 @@ def review_access(
 
     grant.status = req.status
     grant.reviewed_by = current_user.id
-    from datetime import datetime, timezone
-    grant.reviewed_at = datetime.now(timezone.utc)
+    from datetime import datetime
+
+    grant.reviewed_at = datetime.now(UTC)
     db.commit()
 
-    requester = db.query(User).filter(User.id == grant.requested_by).first() if grant.requested_by else None
+    requester = (
+        db.query(User).filter(User.id == grant.requested_by).first() if grant.requested_by else None
+    )
     if requester:
         threading.Thread(
             target=send_access_reviewed,
@@ -980,9 +1042,9 @@ def workspace_catalogs(
     current_user: User = Depends(get_current_user),
 ):
     from sqlalchemy import or_
-    shared_ids = (
-        db.query(CatalogAccess.catalog_id)
-        .filter(CatalogAccess.workspace_id == workspace_id, CatalogAccess.status == "approved")
+
+    shared_ids = db.query(CatalogAccess.catalog_id).filter(
+        CatalogAccess.workspace_id == workspace_id, CatalogAccess.status == "approved"
     )
     catalogs = (
         db.query(Catalog)

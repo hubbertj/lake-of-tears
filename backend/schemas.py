@@ -1,15 +1,15 @@
 from __future__ import annotations
-import re
+
 import uuid
 from datetime import datetime
-from typing import Optional
+
 from pydantic import BaseModel, EmailStr, field_validator
 
 
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
-    display_name: Optional[str] = None
+    display_name: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -20,7 +20,7 @@ class LoginRequest(BaseModel):
 class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
-    display_name: Optional[str]
+    display_name: str | None
     role: str
     is_active: bool
     created_at: datetime
@@ -29,20 +29,21 @@ class UserResponse(BaseModel):
 
 
 class UpdateUserRequest(BaseModel):
-    role: Optional[str] = None
-    is_active: Optional[bool] = None
-    display_name: Optional[str] = None
+    role: str | None = None
+    is_active: bool | None = None
+    display_name: str | None = None
 
 
 class UpdateMeRequest(BaseModel):
-    display_name: Optional[str] = None
+    display_name: str | None = None
 
 
 # ── Workspaces ────────────────────────────────────────────────────────────────
 
+
 class CreateWorkspaceRequest(BaseModel):
     name: str
-    description: Optional[str] = None
+    description: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -56,7 +57,7 @@ class CreateWorkspaceRequest(BaseModel):
 class WorkspaceMemberResponse(BaseModel):
     user_id: uuid.UUID
     email: str
-    display_name: Optional[str]
+    display_name: str | None
     role: str
     joined_at: datetime
 
@@ -67,10 +68,10 @@ class WorkspaceResponse(BaseModel):
     id: uuid.UUID
     name: str
     slug: str
-    description: Optional[str]
+    description: str | None
     created_at: datetime
     # caller's role within this workspace (populated on the fly)
-    my_role: Optional[str] = None
+    my_role: str | None = None
 
     model_config = {"from_attributes": True}
 
@@ -99,15 +100,16 @@ class UpdateMemberRequest(BaseModel):
 
 
 class UpdateWorkspaceRequest(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: str | None = None
+    description: str | None = None
 
 
 # ── Catalogs ──────────────────────────────────────────────────────────────────
 
+
 class CreateCatalogRequest(BaseModel):
     name: str
-    description: Optional[str] = None
+    description: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -119,13 +121,13 @@ class CreateCatalogRequest(BaseModel):
 
 
 class UpdateCatalogRequest(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: str | None = None
+    description: str | None = None
 
 
 class CreateSchemaRequest(BaseModel):
     name: str
-    description: Optional[str] = None
+    description: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -137,20 +139,20 @@ class CreateSchemaRequest(BaseModel):
 
 
 class UpdateSchemaRequest(BaseModel):
-    description: Optional[str] = None
+    description: str | None = None
 
 
 class ColumnDef(BaseModel):
     name: str
     type: str
-    description: Optional[str] = None
+    description: str | None = None
     deprecated: bool = False
 
 
 class CreateTableRequest(BaseModel):
     name: str
-    description: Optional[str] = None
-    s3_path_pattern: Optional[str] = None
+    description: str | None = None
+    s3_path_pattern: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -162,9 +164,9 @@ class CreateTableRequest(BaseModel):
 
 
 class UpdateTableRequest(BaseModel):
-    description: Optional[str] = None
-    s3_path_pattern: Optional[str] = None
-    column_defs: Optional[list[ColumnDef]] = None
+    description: str | None = None
+    s3_path_pattern: str | None = None
+    column_defs: list[ColumnDef] | None = None
 
 
 class CatalogTableResponse(BaseModel):
@@ -172,9 +174,9 @@ class CatalogTableResponse(BaseModel):
     schema_id: uuid.UUID
     name: str
     slug: str
-    description: Optional[str]
-    s3_path_pattern: Optional[str]
-    column_defs: Optional[list]
+    description: str | None
+    s3_path_pattern: str | None
+    column_defs: list | None
     schema_drift: bool
     created_at: datetime
 
@@ -186,7 +188,7 @@ class CatalogSchemaResponse(BaseModel):
     catalog_id: uuid.UUID
     name: str
     slug: str
-    description: Optional[str]
+    description: str | None
     tier: str
     created_at: datetime
     tables: list[CatalogTableResponse] = []
@@ -198,18 +200,18 @@ class CatalogResponse(BaseModel):
     id: uuid.UUID
     name: str
     slug: str
-    description: Optional[str]
+    description: str | None
     owner_workspace_id: uuid.UUID
     created_at: datetime
     schemas: list[CatalogSchemaResponse] = []
-    my_access: Optional[str] = None  # 'owner' | 'write' | 'read' | None
+    my_access: str | None = None  # 'owner' | 'write' | 'read' | None
 
     model_config = {"from_attributes": True}
 
 
 class RequestAccessRequest(BaseModel):
     mode: str = "read"
-    message: Optional[str] = None
+    message: str | None = None
 
     @field_validator("mode")
     @classmethod
@@ -234,11 +236,11 @@ class CatalogAccessResponse(BaseModel):
     id: uuid.UUID
     catalog_id: uuid.UUID
     workspace_id: uuid.UUID
-    workspace_name: Optional[str] = None
+    workspace_name: str | None = None
     mode: str
     status: str
-    requested_by_email: Optional[str] = None
+    requested_by_email: str | None = None
     requested_at: datetime
-    reviewed_at: Optional[datetime]
+    reviewed_at: datetime | None
 
     model_config = {"from_attributes": True}

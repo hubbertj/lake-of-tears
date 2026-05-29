@@ -1,32 +1,38 @@
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
 import hashlib
-import pandas as pd
 from datetime import date, timedelta
+
+import pandas as pd
 from gemini_embedder import embed_texts
 from storage_writer import get_duckdb_con
 
 
 def _text_jellyfin(row) -> str:
-    parts = [str(row[c]) for c in ("Name", "Type", "ShortOverview") if pd.notna(row.get(c)) and str(row.get(c, "")).strip()]
+    parts = [
+        str(row[c])
+        for c in ("Name", "Type", "ShortOverview")
+        if pd.notna(row.get(c)) and str(row.get(c, "")).strip()
+    ]
     return " | ".join(parts) or "Jellyfin activity"
 
 
 def _text_truenas(row) -> str:
     name = row.get("name", "unknown")
     status = row.get("status", "unknown")
-    allocated_gb = (row.get("allocated") or 0) / (1024 ** 3)
-    free_gb = (row.get("free") or 0) / (1024 ** 3)
+    allocated_gb = (row.get("allocated") or 0) / (1024**3)
+    free_gb = (row.get("free") or 0) / (1024**3)
     return f"Pool {name}: {status}, {allocated_gb:.1f}GB used, {free_gb:.1f}GB free"
 
 
 def _text_weather(row) -> str:
     return (
-        f"Weather {row.get('timestamp','')}: {row.get('temperature_2m','')}F apparent "
-        f"{row.get('apparent_temperature','')}F, {row.get('relative_humidity_2m','')}% humidity, "
-        f"{row.get('precipitation',0)}in precip, {row.get('wind_speed_10m','')}mph wind"
+        f"Weather {row.get('timestamp', '')}: {row.get('temperature_2m', '')}F apparent "
+        f"{row.get('apparent_temperature', '')}F, {row.get('relative_humidity_2m', '')}% humidity, "
+        f"{row.get('precipitation', 0)}in precip, {row.get('wind_speed_10m', '')}mph wind"
     )
 
 
@@ -45,17 +51,17 @@ def _text_truenas_logs(row) -> str:
 
 
 TEXT_FN = {
-    "jellyfin":     _text_jellyfin,
-    "truenas":      _text_truenas,
-    "weather":      _text_weather,
-    "alexa":        _text_alexa,
+    "jellyfin": _text_jellyfin,
+    "truenas": _text_truenas,
+    "weather": _text_weather,
+    "alexa": _text_alexa,
     "truenas_logs": _text_truenas_logs,
 }
 
 SOURCES = {
-    "jellyfin":     "raw/jellyfin/**/*.parquet",
-    "truenas":      "raw/truenas/**/*.parquet",
-    "weather":      "raw/weather/**/*.parquet",
+    "jellyfin": "raw/jellyfin/**/*.parquet",
+    "truenas": "raw/truenas/**/*.parquet",
+    "weather": "raw/weather/**/*.parquet",
     "truenas_logs": "raw/truenas_logs/**/*.parquet",
 }
 
@@ -86,12 +92,14 @@ def embed_source(source: str, parquet_glob: str):
     if id_col:
         df["id"] = df[id_col].astype(str)
     else:
-        df["id"] = df["content"].apply(lambda t: hashlib.md5(t.encode()).hexdigest())
+        df["id"] = df["content"].apply(
+            lambda t: hashlib.md5(t.encode(), usedforsecurity=False).hexdigest()
+        )
 
     texts = df["content"].tolist()
     embeddings = []
     for i in range(0, len(texts), 100):
-        embeddings.extend(embed_texts(texts[i:i + 100]))
+        embeddings.extend(embed_texts(texts[i : i + 100]))
     df["embedding"] = embeddings
 
     out_df = df[["id", "source", "content", "embedding", "source_date"]].copy()

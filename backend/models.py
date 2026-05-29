@@ -1,9 +1,10 @@
 import uuid
-from datetime import datetime, timezone
-from sqlalchemy import String, Boolean, DateTime, ForeignKey, Text, UniqueConstraint, Enum as SAEnum
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from datetime import UTC, datetime
+
 from database import Base
+from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 
 class User(Base):
@@ -17,7 +18,7 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
     oauth_accounts: Mapped[list["OAuthAccount"]] = relationship(
@@ -30,7 +31,9 @@ class User(Base):
 
 class OAuthAccount(Base):
     __tablename__ = "oauth_accounts"
-    __table_args__ = (UniqueConstraint("provider", "provider_user_id", name="uq_oauth_provider_user"),)
+    __table_args__ = (
+        UniqueConstraint("provider", "provider_user_id", name="uq_oauth_provider_user"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -53,7 +56,7 @@ class Workspace(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
     members: Mapped[list["WorkspaceMember"]] = relationship(
@@ -75,7 +78,7 @@ class WorkspaceMember(Base):
     # Workspace-scoped roles: 'admin' | 'user'
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="user")
     joined_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
     workspace: Mapped["Workspace"] = relationship(back_populates="members")
@@ -83,6 +86,7 @@ class WorkspaceMember(Base):
 
 
 # ── Catalog ───────────────────────────────────────────────────────────────────
+
 
 class Catalog(Base):
     __tablename__ = "catalogs"
@@ -98,7 +102,7 @@ class Catalog(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
     schemas: Mapped[list["CatalogSchema"]] = relationship(
@@ -123,7 +127,7 @@ class CatalogSchema(Base):
     # 'bronze' | 'silver' | 'gold' | 'custom'
     tier: Mapped[str] = mapped_column(String(20), nullable=False, default="custom")
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
     catalog: Mapped["Catalog"] = relationship(back_populates="schemas")
@@ -147,7 +151,7 @@ class CatalogTable(Base):
     column_defs: Mapped[list | None] = mapped_column(JSONB, nullable=True, default=list)
     schema_drift: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
     schema: Mapped["CatalogSchema"] = relationship(back_populates="tables")
@@ -175,7 +179,7 @@ class CatalogAccess(Base):
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     requested_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

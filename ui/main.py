@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import math
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import boto3
 import botocore.exceptions
@@ -13,7 +13,7 @@ import httpx
 import jwt
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from google import genai
@@ -92,9 +92,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Fetch workspace context
         import asyncio
-        workspaces = await asyncio.get_event_loop().run_in_executor(
-            None, _fetch_workspaces, token
-        )
+
+        workspaces = await asyncio.get_event_loop().run_in_executor(None, _fetch_workspaces, token)
         request.state.workspaces = workspaces
 
         active_id = request.cookies.get(_WORKSPACE_COOKIE, "")
@@ -129,13 +128,13 @@ def _human_size(num_bytes: int) -> str:
         return "0 B"
     units = ["B", "KB", "MB", "GB", "TB"]
     exp = min(int(math.log(num_bytes, 1024)), len(units) - 1)
-    return f"{num_bytes / (1024 ** exp):.1f} {units[exp]}"
+    return f"{num_bytes / (1024**exp):.1f} {units[exp]}"
 
 
 def _source_status(last_modified: datetime | None) -> str:
     if last_modified is None:
         return "red"
-    age = datetime.now(timezone.utc) - last_modified
+    age = datetime.now(UTC) - last_modified
     if age <= timedelta(hours=25):
         return "green"
     if age <= timedelta(hours=48):
@@ -247,7 +246,10 @@ def _get_catalog_data() -> dict[str, Any]:
                 groups[group_key]["objects"] += 1
                 groups[group_key]["size"] += obj["Size"]
                 lm = obj["LastModified"]
-                if groups[group_key]["last_modified"] is None or lm > groups[group_key]["last_modified"]:
+                if (
+                    groups[group_key]["last_modified"] is None
+                    or lm > groups[group_key]["last_modified"]
+                ):
                     groups[group_key]["last_modified"] = lm
 
         rows = []
@@ -328,7 +330,6 @@ def _ai_query(question: str) -> dict[str, Any]:
         con = duckdb.connect()
         rel = con.execute(sql)
         rows = rel.fetchall()
-        columns = [desc[0] for desc in rel.description]
         con.close()
 
         context_snippets = [
@@ -597,7 +598,7 @@ async def switch_workspace(workspace_id: str, request: Request):
     return resp
 
 
-def _backend_get(path: str, token: str) -> Optional[dict | list]:
+def _backend_get(path: str, token: str) -> dict | list | None:
     try:
         with httpx.Client(timeout=5) as client:
             resp = client.get(
@@ -611,7 +612,7 @@ def _backend_get(path: str, token: str) -> Optional[dict | list]:
     return None
 
 
-def _backend_post(path: str, token: str, json: dict) -> Optional[dict]:
+def _backend_post(path: str, token: str, json: dict) -> dict | None:
     try:
         with httpx.Client(timeout=5) as client:
             resp = client.post(
@@ -626,7 +627,7 @@ def _backend_post(path: str, token: str, json: dict) -> Optional[dict]:
     return None
 
 
-def _backend_patch(path: str, token: str, json: dict) -> Optional[dict]:
+def _backend_patch(path: str, token: str, json: dict) -> dict | None:
     try:
         with httpx.Client(timeout=5) as client:
             resp = client.patch(
@@ -656,6 +657,7 @@ def _backend_delete(path: str, token: str) -> bool:
 
 # ── Settings: Account ─────────────────────────────────────────────────────
 
+
 @app.get("/settings/account", response_class=HTMLResponse)
 async def settings_account_get(request: Request):
     token = request.cookies.get("lake_token")
@@ -676,6 +678,7 @@ async def settings_account_post(request: Request, display_name: str = Form(...))
 
 
 # ── Settings: Workspace ───────────────────────────────────────────────────
+
 
 @app.get("/settings/workspace", response_class=HTMLResponse)
 async def settings_workspace_get(request: Request):
@@ -708,7 +711,9 @@ async def settings_workspace_rename(
     ws = request.state.workspace
     token = request.cookies.get("lake_token")
     if ws and token:
-        _backend_patch(f"/api/workspaces/{ws['id']}", token, {"name": name, "description": description})
+        _backend_patch(
+            f"/api/workspaces/{ws['id']}", token, {"name": name, "description": description}
+        )
     return RedirectResponse(url="/settings/workspace?saved=1", status_code=302)
 
 
@@ -727,7 +732,9 @@ async def settings_workspace_add_member(
             {"email": email, "role": role},
         )
         if result is None:
-            return RedirectResponse(url="/settings/workspace?error=member_not_found", status_code=302)
+            return RedirectResponse(
+                url="/settings/workspace?error=member_not_found", status_code=302
+            )
     return RedirectResponse(url="/settings/workspace?saved=1", status_code=302)
 
 
@@ -754,6 +761,7 @@ async def settings_workspace_member_role(
 
 
 # ── Settings: Admin ───────────────────────────────────────────────────────
+
 
 @app.get("/settings/admin", response_class=HTMLResponse)
 async def settings_admin_get(request: Request):

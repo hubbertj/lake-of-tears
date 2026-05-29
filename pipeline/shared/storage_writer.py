@@ -1,5 +1,6 @@
 import os
 import pathlib
+
 import duckdb
 
 
@@ -16,6 +17,7 @@ def _load_env():
                         k, _, v = line.partition("=")
                         os.environ.setdefault(k.strip(), v.strip())
             break
+
 
 _load_env()
 
@@ -56,6 +58,7 @@ def write_to_storage(
     """
     if date_str is None:
         from datetime import date
+
         date_str = date.today().isoformat()
 
     y, m, d = date_str[:4], date_str[5:7], date_str[8:10]

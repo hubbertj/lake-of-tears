@@ -18,12 +18,11 @@ import os
 import subprocess
 import sys
 from datetime import date, timedelta
+from pathlib import Path
 
 import pandas as pd
 import requests
 
-import sys
-from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[2]))
 from storage_writer import _load_env, write_to_storage
 
@@ -36,15 +35,22 @@ TODAY = str(date.today())
 YESTERDAY = str(date.today() - timedelta(days=1))
 
 PRIORITY_NAMES = {
-    "0": "EMERGENCY", "1": "ALERT", "2": "CRITICAL",
-    "3": "ERROR",     "4": "WARNING",
+    "0": "EMERGENCY",
+    "1": "ALERT",
+    "2": "CRITICAL",
+    "3": "ERROR",
+    "4": "WARNING",
 }
 
 
 def fetch_journal_logs():
     """Pull WARNING+ journal entries for yesterday via SSH."""
     cmd = [
-        "ssh", "-o", "StrictHostKeyChecking=no", "-o", "BatchMode=yes",
+        "ssh",
+        "-o",
+        "StrictHostKeyChecking=no",
+        "-o",
+        "BatchMode=yes",
         f"root@{TRUENAS_HOST}",
         (
             f"journalctl --since '{YESTERDAY} 00:00:00' "
@@ -79,17 +85,20 @@ def fetch_journal_logs():
         ts_us = e.get("__REALTIME_TIMESTAMP")
         try:
             import datetime
+
             ts = datetime.datetime.fromtimestamp(int(ts_us) / 1e6).isoformat()
         except Exception:
             ts = YESTERDAY
 
-        entries.append({
-            "log_type":  "journal",
-            "unit":      unit,
-            "priority":  PRIORITY_NAMES.get(priority, priority),
-            "timestamp": ts,
-            "message":   message,
-        })
+        entries.append(
+            {
+                "log_type": "journal",
+                "unit": unit,
+                "priority": PRIORITY_NAMES.get(priority, priority),
+                "timestamp": ts,
+                "message": message,
+            }
+        )
 
     print(f"  Journal entries (WARNING+): {len(entries)}")
     return entries
@@ -119,17 +128,20 @@ def fetch_alerts():
             ts_ms = ts_ms.get("$date", 0)
         try:
             import datetime
+
             ts = datetime.datetime.fromtimestamp(int(ts_ms) / 1000).isoformat()
         except Exception:
             ts = YESTERDAY
 
-        entries.append({
-            "log_type":  "alert",
-            "unit":      a.get("source", "alert"),
-            "priority":  a.get("level", "WARNING"),
-            "timestamp": ts,
-            "message":   text,
-        })
+        entries.append(
+            {
+                "log_type": "alert",
+                "unit": a.get("source", "alert"),
+                "priority": a.get("level", "WARNING"),
+                "timestamp": ts,
+                "message": text,
+            }
+        )
 
     print(f"  Active alerts: {len(entries)}")
     return entries
@@ -147,10 +159,10 @@ def main():
         return
 
     df = pd.DataFrame(all_entries)
-    df["content"] = df.apply(
-        lambda r: f"[{r['unit']}] {r['priority']}: {r['message']}", axis=1
+    df["content"] = df.apply(lambda r: f"[{r['unit']}] {r['priority']}: {r['message']}", axis=1)
+    df["id"] = df["content"].apply(
+        lambda t: hashlib.md5(t.encode(), usedforsecurity=False).hexdigest()
     )
-    df["id"] = df["content"].apply(lambda t: hashlib.md5(t.encode()).hexdigest())
     df["source_date"] = YESTERDAY
     df["ingested_at"] = pd.Timestamp.now()
 

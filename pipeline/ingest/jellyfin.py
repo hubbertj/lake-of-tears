@@ -1,11 +1,13 @@
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
 import os
-import requests
-import pandas as pd
 from datetime import date
+
+import pandas as pd
+import requests
 from storage_writer import write_to_storage
 
 JELLYFIN_URL = os.environ.get("JELLYFIN_URL", "")
@@ -17,6 +19,7 @@ def fetch_activity() -> pd.DataFrame:
         f"{JELLYFIN_URL}/System/ActivityLog/Entries",
         headers={"X-Emby-Token": API_KEY},
         params={"limit": 1000},
+        timeout=30,
     )
     resp.raise_for_status()
     return pd.DataFrame(resp.json().get("Items", []))

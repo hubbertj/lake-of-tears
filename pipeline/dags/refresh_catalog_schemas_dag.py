@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
@@ -15,6 +16,7 @@ MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "")
 
 def _duckdb_con():
     import duckdb
+
     con = duckdb.connect()
     con.execute(f"""
         INSTALL httpfs; LOAD httpfs;
@@ -33,7 +35,9 @@ def _infer_columns(s3_path_pattern: str) -> list[dict] | None:
         rel = con.execute(f"DESCRIBE SELECT * FROM read_parquet('{s3_path_pattern}') LIMIT 0")
         rows = rel.fetchall()
         con.close()
-        return [{"name": r[0], "type": r[1], "description": None, "deprecated": False} for r in rows]
+        return [
+            {"name": r[0], "type": r[1], "description": None, "deprecated": False} for r in rows
+        ]
     except Exception:
         return None
 
@@ -64,7 +68,6 @@ def _merge_columns(existing: list[dict], inferred: list[dict]) -> tuple[list[dic
 
 
 def refresh_catalog_schemas():
-    import httpx
     from sqlalchemy import create_engine
     from sqlalchemy.orm import sessionmaker
 
@@ -76,9 +79,12 @@ def refresh_catalog_schemas():
     try:
         # Import models inline to avoid circular issues in Airflow worker
         from sqlalchemy import text
-        tables = db.execute(text(
-            "SELECT id, s3_path_pattern, column_defs FROM catalog_tables WHERE s3_path_pattern IS NOT NULL"
-        )).fetchall()
+
+        tables = db.execute(
+            text(
+                "SELECT id, s3_path_pattern, column_defs FROM catalog_tables WHERE s3_path_pattern IS NOT NULL"
+            )
+        ).fetchall()
 
         for row in tables:
             table_id, path, existing_cols = row
@@ -88,7 +94,9 @@ def refresh_catalog_schemas():
 
             merged, drift = _merge_columns(existing_cols or [], inferred)
             db.execute(
-                text("UPDATE catalog_tables SET column_defs = :cols::jsonb, schema_drift = :drift WHERE id = :id"),
+                text(
+                    "UPDATE catalog_tables SET column_defs = :cols::jsonb, schema_drift = :drift WHERE id = :id"
+                ),
                 {"cols": __import__("json").dumps(merged), "drift": drift, "id": str(table_id)},
             )
 

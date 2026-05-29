@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 import os
 import smtplib
-from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 
 def _smtp_cfg() -> dict:
