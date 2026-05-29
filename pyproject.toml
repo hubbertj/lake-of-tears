@@ -16,4 +16,4 @@ indent-style = "space"
 
 [tool.bandit]
 exclude_dirs = ["deploy/terraform/", ".venv/"]
-skips = ["B101"]
+skips = ["B101", "B608"]

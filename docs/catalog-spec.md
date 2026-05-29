@@ -256,14 +256,81 @@ Write path is derived from slugs. The writer validates the calling workspace has
 - Sets `schema_drift = true` on any table where the column set changed
 - Logs a summary of changes
 
+## Medallion Schema Tiers
+
+Every new catalog is created with three locked schemas — **bronze**, **silver**, and **gold** — representing the standard lakehouse medallion architecture. These schemas cannot be deleted or renamed; they are permanent fixtures of every catalog.
+
+| Tier | Slug | Purpose |
+|---|---|---|
+| 🟤 Bronze | `bronze` | Raw ingested data — unmodified, as-landed from the source |
+| ⚪ Silver | `silver` | Cleaned and validated data — deduplicated, typed, nulls handled |
+| 🟡 Gold | `gold` | Aggregated and business-ready data — metrics, summaries, joined views |
+
+Additional schemas beyond these three can be created and managed freely by workspace admins with write access.
+
+### Data Model Change
+
+The `schemas` table gains a `tier` column:
+
+```sql
+schemas
+  ...
+  tier  ENUM('bronze', 'silver', 'gold', 'custom') DEFAULT 'custom'
+  ...
+```
+
+When a catalog is created, the backend inserts three rows with `tier = 'bronze'`, `tier = 'silver'`, and `tier = 'gold'`. Delete and rename operations on these rows are rejected by the API (HTTP 400).
+
+---
+
+## Catalog Browser UI
+
+### Layout: Expandable List
+
+The catalog browser (`/catalog`) renders as a vertical list of expandable sections — not a file tree. Each level is a discrete accordion row that expands inline.
+
+```
+┌─────────────────────────────────────────────────┐
+│ ▼  production                        [owned]    │
+│                                                  │
+│    🟤 ▼  bronze                                 │
+│         📄 raw_stripe_charges                   │
+│         📄 raw_weather_hourly                   │
+│                                                  │
+│    ⚪ ▶  silver                                 │
+│    🟡 ▶  gold                                   │
+│    📂 ▶  analytics            (custom schema)   │
+│                                                  │
+│ ▶  raw                               [read]     │
+└─────────────────────────────────────────────────┘
+```
+
+- **Catalog row**: full-width, bold name, access badge (`[owned]` / `[read]` / `[write]`), chevron toggle.
+- **Schema row**: indented, nugget icon for tier (see below), schema name, chevron toggle. Custom schemas use a plain folder icon `📂`.
+- **Table row**: indented further, document icon `📄`, table name. Clicking opens the table detail panel.
+
+All three levels are collapsed by default. Browser remembers expanded state per session (localStorage).
+
+### Medallion Nugget Icons
+
+Bronze, silver, and gold schemas each have a distinct visual treatment applied only to the schema row itself (not propagated to table rows). The icons are the actual ore-rock images committed to the repo:
+
+| Tier | Image asset | Label color | Row accent |
+|---|---|---|---|
+| Bronze | `ui/static/img/medallion/bronze-ore.jpg` | `#cd7f32` | Left border `2px solid #cd7f32` |
+| Silver | `ui/static/img/medallion/silver-ore.jpg` | `#a8a9ad` | Left border `2px solid #a8a9ad` |
+| Gold   | `ui/static/img/medallion/gold-ore.jpg`   | `#b8860b` | Left border `2px solid #ffd700` |
+
+Each image is displayed at **20×20 px** (CSS `object-fit: contain`) next to the schema name. Custom schemas use a plain folder icon with no border accent.
+
 ## Implementation Order
 
-1. PostgreSQL models + Alembic migrations
-2. Backend API (catalogs → schemas → tables → access management)
+1. PostgreSQL models + Alembic migrations (include `tier` column on `schemas`)
+2. Backend API (catalogs → schemas → tables → access management; enforce locked medallion schemas)
 3. Email notification service (SMTP)
 4. Workspace Settings — Catalogs tab + global directory modal
-5. Catalog Browser page (replaces `/catalog`)
+5. Catalog Browser page (replaces `/catalog`) — expandable list layout with medallion nugget icons
 6. Nightly refresh DAG
 7. StorageWriter refactor
 8. SQL Editor autocomplete
-9. Seed migration (existing raw/* paths → raw.sources catalog)
+9. Seed migration (existing raw/* paths → raw.sources catalog; seed bronze/silver/gold on raw catalog)

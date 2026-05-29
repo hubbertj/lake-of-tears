@@ -1,10 +1,12 @@
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
 import os
-import numpy as np
+
 import duckdb
+import numpy as np
 from google import genai
 from sklearn.ensemble import IsolationForest
 from storage_writer import _load_env
@@ -41,7 +43,7 @@ def detect_anomalies(source: str = "truenas", contamination: float = 0.05) -> st
     response = _client.models.generate_content(
         model="gemini-2.5-flash",
         contents=f"The following {source} entries were flagged as anomalies. "
-                 f"Summarize what's unusual about them:\n\n" + "\n".join(anomalies[:20]),
+        f"Summarize what's unusual about them:\n\n" + "\n".join(anomalies[:20]),
     )
     return response.text
 

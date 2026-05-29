@@ -1,10 +1,9 @@
 from __future__ import annotations
+
 import os
 import re
-
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+import threading
+from datetime import UTC
 
 from auth import (
     COOKIE_NAME,
@@ -13,25 +12,49 @@ from auth import (
     get_current_user,
     hash_password,
     require_superadmin,
-    require_workspace_admin,
     verify_password,
 )
 from database import engine, get_db
-from models import Base, OAuthAccount, User, Workspace, WorkspaceMember
+from email_service import send_access_requested, send_access_reviewed
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from models import (
+    Base,
+    Catalog,
+    CatalogAccess,
+    CatalogSchema,
+    CatalogTable,
+    User,
+    Workspace,
+    WorkspaceMember,
+)
 from oauth import enabled_providers, get_oauth_redirect, handle_oauth_callback
 from schemas import (
     AddMemberRequest,
+    CatalogAccessResponse,
+    CatalogResponse,
+    CatalogSchemaResponse,
+    CatalogTableResponse,
+    CreateCatalogRequest,
+    CreateSchemaRequest,
+    CreateTableRequest,
     CreateWorkspaceRequest,
     LoginRequest,
     RegisterRequest,
+    RequestAccessRequest,
+    ReviewAccessRequest,
+    UpdateCatalogRequest,
     UpdateMemberRequest,
     UpdateMeRequest,
+    UpdateSchemaRequest,
+    UpdateTableRequest,
     UpdateUserRequest,
     UpdateWorkspaceRequest,
     UserResponse,
     WorkspaceMemberResponse,
     WorkspaceResponse,
 )
+from sqlalchemy.orm import Session
 
 Base.metadata.create_all(bind=engine)
 
@@ -47,6 +70,7 @@ app.add_middleware(
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _slugify(name: str) -> str:
     slug = re.sub(r"[^\w\s-]", "", name.lower())
@@ -72,7 +96,14 @@ def _create_default_workspace(db: Session, user: User) -> Workspace:
 
 
 def _set_auth_cookie(response: Response, user: User) -> None:
-    token = create_token({"sub": str(user.id), "email": user.email, "role": user.role, "display_name": user.display_name or ""})
+    token = create_token(
+        {
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            "display_name": user.display_name or "",
+        }
+    )
     response.set_cookie(COOKIE_NAME, token, max_age=TOKEN_MAX_AGE, httponly=True, samesite="lax")
 
 
@@ -123,7 +154,11 @@ def register(req: RegisterRequest, response: Response, db: Session = Depends(get
 @app.post("/api/auth/login")
 def login(req: LoginRequest, response: Response, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == req.email).first()
-    if not user or not user.hashed_password or not verify_password(req.password, user.hashed_password):
+    if (
+        not user
+        or not user.hashed_password
+        or not verify_password(req.password, user.hashed_password)
+    ):
         raise HTTPException(401, "Invalid email or password")
     if not user.is_active:
         raise HTTPException(403, "Account disabled — contact your superadmin")
@@ -174,7 +209,9 @@ def oauth_start(provider: str, request: Request, response: Response):
 
 
 @app.get("/api/auth/oauth/{provider}/callback")
-def oauth_callback(provider: str, request: Request, response: Response, db: Session = Depends(get_db)):
+def oauth_callback(
+    provider: str, request: Request, response: Response, db: Session = Depends(get_db)
+):
     return handle_oauth_callback(provider, request, response, db)
 
 
@@ -278,7 +315,9 @@ def update_workspace(
         raise HTTPException(404, "Workspace not found")
     # Must be workspace admin or superadmin
     if current_user.role != "superadmin":
-        member = next((m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None)
+        member = next(
+            (m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None
+        )
         if not member:
             raise HTTPException(403, "Workspace admin access required")
     if req.name is not None:
@@ -343,7 +382,9 @@ def add_member(
     if not ws:
         raise HTTPException(404, "Workspace not found")
     if current_user.role != "superadmin":
-        member_check = next((m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None)
+        member_check = next(
+            (m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None
+        )
         if not member_check:
             raise HTTPException(403, "Workspace admin access required")
 
@@ -351,7 +392,9 @@ def add_member(
     if not target:
         raise HTTPException(404, "User not found — they must register first")
 
-    existing = db.query(WorkspaceMember).filter_by(workspace_id=workspace_id, user_id=target.id).first()
+    existing = (
+        db.query(WorkspaceMember).filter_by(workspace_id=workspace_id, user_id=target.id).first()
+    )
     if existing:
         existing.role = req.role
     else:
@@ -372,7 +415,9 @@ def update_member(
     if not ws:
         raise HTTPException(404, "Workspace not found")
     if current_user.role != "superadmin":
-        admin_check = next((m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None)
+        admin_check = next(
+            (m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None
+        )
         if not admin_check:
             raise HTTPException(403, "Workspace admin access required")
 
@@ -397,7 +442,9 @@ def remove_member(
     if not ws:
         raise HTTPException(404, "Workspace not found")
     if current_user.role != "superadmin":
-        admin_check = next((m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None)
+        admin_check = next(
+            (m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None
+        )
         if not admin_check:
             raise HTTPException(403, "Workspace admin access required")
 
@@ -417,3 +464,592 @@ def remove_member(
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# ── Catalog helpers ───────────────────────────────────────────────────────────
+
+_MEDALLION_TIERS = ("bronze", "silver", "gold")
+
+
+def _slugify(name: str) -> str:
+    slug = re.sub(r"[^\w\s-]", "", name.lower())
+    return re.sub(r"[\s_-]+", "-", slug).strip("-") or "item"
+
+
+def _unique_catalog_slug(db: Session, base: str) -> str:
+    slug, i = base, 0
+    while db.query(Catalog).filter(Catalog.slug == slug).first():
+        i += 1
+        slug = f"{base}-{i}"
+    return slug
+
+
+def _seed_medallion_schemas(db: Session, catalog: Catalog) -> None:
+    for tier in _MEDALLION_TIERS:
+        db.add(
+            CatalogSchema(
+                catalog_id=catalog.id,
+                name=tier.capitalize(),
+                slug=tier,
+                tier=tier,
+            )
+        )
+
+
+def _caller_access(db: Session, catalog: Catalog, user: User) -> str | None:
+    if user.role == "superadmin":
+        return "owner"
+    ws_ids = [str(m.workspace_id) for m in user.workspace_memberships]
+    if str(catalog.owner_workspace_id) in ws_ids:
+        return "owner"
+    grant = (
+        db.query(CatalogAccess)
+        .filter(
+            CatalogAccess.catalog_id == catalog.id,
+            CatalogAccess.workspace_id.in_(ws_ids),
+            CatalogAccess.status == "approved",
+        )
+        .first()
+    )
+    return grant.mode if grant else None
+
+
+def _assert_catalog_access(db: Session, catalog: Catalog, user: User, require: str = "read") -> str:
+    access = _caller_access(db, catalog, user)
+    if access is None:
+        raise HTTPException(403, "No access to this catalog")
+    if require == "write" and access not in ("owner", "write"):
+        raise HTTPException(403, "Write access required")
+    if require == "owner" and access != "owner":
+        raise HTTPException(403, "Catalog owner access required")
+    return access
+
+
+def _owner_emails(db: Session, catalog: Catalog) -> list[str]:
+    members = (
+        db.query(WorkspaceMember)
+        .filter(WorkspaceMember.workspace_id == catalog.owner_workspace_id)
+        .all()
+    )
+    return [m.user.email for m in members if m.user and m.user.is_active]
+
+
+def _catalog_response(catalog: Catalog, user: User, db: Session) -> CatalogResponse:
+    access = _caller_access(db, catalog, user)
+    return CatalogResponse(
+        id=catalog.id,
+        name=catalog.name,
+        slug=catalog.slug,
+        description=catalog.description,
+        owner_workspace_id=catalog.owner_workspace_id,
+        created_at=catalog.created_at,
+        schemas=[
+            CatalogSchemaResponse(
+                id=s.id,
+                catalog_id=s.catalog_id,
+                name=s.name,
+                slug=s.slug,
+                description=s.description,
+                tier=s.tier,
+                created_at=s.created_at,
+                tables=[CatalogTableResponse.model_validate(t) for t in s.tables],
+            )
+            for s in catalog.schemas
+        ],
+        my_access=access,
+    )
+
+
+# ── Catalog CRUD ──────────────────────────────────────────────────────────────
+
+
+@app.get("/api/catalogs", response_model=list[CatalogResponse])
+def list_catalogs(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if current_user.role == "superadmin":
+        catalogs = db.query(Catalog).order_by(Catalog.created_at).all()
+    else:
+        ws_ids = [m.workspace_id for m in current_user.workspace_memberships]
+        shared_ids = db.query(CatalogAccess.catalog_id).filter(
+            CatalogAccess.workspace_id.in_(ws_ids),
+            CatalogAccess.status == "approved",
+        )
+        from sqlalchemy import or_
+
+        catalogs = (
+            db.query(Catalog)
+            .filter(or_(Catalog.owner_workspace_id.in_(ws_ids), Catalog.id.in_(shared_ids)))
+            .order_by(Catalog.created_at)
+            .all()
+        )
+    return [_catalog_response(c, current_user, db) for c in catalogs]
+
+
+@app.post("/api/catalogs", response_model=CatalogResponse)
+def create_catalog(
+    req: CreateCatalogRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ws = request_workspace(current_user, db)
+    slug = _unique_catalog_slug(db, _slugify(req.name))
+    catalog = Catalog(
+        name=req.name.strip(),
+        slug=slug,
+        description=req.description,
+        owner_workspace_id=ws.id,
+        created_by=current_user.id,
+    )
+    db.add(catalog)
+    db.flush()
+    _seed_medallion_schemas(db, catalog)
+    db.commit()
+    db.refresh(catalog)
+    return _catalog_response(catalog, current_user, db)
+
+
+def request_workspace(user: User, db: Session) -> Workspace:
+    if user.role == "superadmin":
+        ws = db.query(Workspace).filter(Workspace.slug == "default").first()
+    else:
+        member = next((m for m in user.workspace_memberships if m.role == "admin"), None)
+        if not member:
+            raise HTTPException(403, "Workspace admin access required to create a catalog")
+        ws = db.query(Workspace).filter(Workspace.id == member.workspace_id).first()
+    if not ws:
+        raise HTTPException(400, "No eligible workspace found")
+    return ws
+
+
+@app.get("/api/catalogs/{catalog_id}", response_model=CatalogResponse)
+def get_catalog(
+    catalog_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "read")
+    return _catalog_response(catalog, current_user, db)
+
+
+@app.patch("/api/catalogs/{catalog_id}", response_model=CatalogResponse)
+def update_catalog(
+    catalog_id: str,
+    req: UpdateCatalogRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "owner")
+    if req.name is not None:
+        catalog.name = req.name.strip()
+    if req.description is not None:
+        catalog.description = req.description
+    db.commit()
+    db.refresh(catalog)
+    return _catalog_response(catalog, current_user, db)
+
+
+@app.delete("/api/catalogs/{catalog_id}")
+def delete_catalog(
+    catalog_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superadmin),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    db.delete(catalog)
+    db.commit()
+    return {"ok": True}
+
+
+# ── Schema CRUD ───────────────────────────────────────────────────────────────
+
+
+@app.get("/api/catalogs/{catalog_id}/schemas", response_model=list[CatalogSchemaResponse])
+def list_schemas(
+    catalog_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "read")
+    return [
+        CatalogSchemaResponse(
+            id=s.id,
+            catalog_id=s.catalog_id,
+            name=s.name,
+            slug=s.slug,
+            description=s.description,
+            tier=s.tier,
+            created_at=s.created_at,
+            tables=[CatalogTableResponse.model_validate(t) for t in s.tables],
+        )
+        for s in catalog.schemas
+    ]
+
+
+@app.post("/api/catalogs/{catalog_id}/schemas", response_model=CatalogSchemaResponse)
+def create_schema(
+    catalog_id: str,
+    req: CreateSchemaRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "write")
+    slug = _slugify(req.name)
+    if db.query(CatalogSchema).filter_by(catalog_id=catalog_id, slug=slug).first():
+        raise HTTPException(400, f"Schema slug '{slug}' already exists in this catalog")
+    schema = CatalogSchema(
+        catalog_id=catalog.id, name=req.name.strip(), slug=slug, description=req.description
+    )
+    db.add(schema)
+    db.commit()
+    db.refresh(schema)
+    return CatalogSchemaResponse(
+        id=schema.id,
+        catalog_id=schema.catalog_id,
+        name=schema.name,
+        slug=schema.slug,
+        description=schema.description,
+        tier=schema.tier,
+        created_at=schema.created_at,
+        tables=[],
+    )
+
+
+@app.patch("/api/catalogs/{catalog_id}/schemas/{schema_id}", response_model=CatalogSchemaResponse)
+def update_schema(
+    catalog_id: str,
+    schema_id: str,
+    req: UpdateSchemaRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "write")
+    schema = db.query(CatalogSchema).filter_by(id=schema_id, catalog_id=catalog_id).first()
+    if not schema:
+        raise HTTPException(404, "Schema not found")
+    if schema.tier in _MEDALLION_TIERS:
+        raise HTTPException(400, f"Cannot modify the locked '{schema.tier}' medallion schema")
+    if req.description is not None:
+        schema.description = req.description
+    db.commit()
+    db.refresh(schema)
+    return CatalogSchemaResponse(
+        id=schema.id,
+        catalog_id=schema.catalog_id,
+        name=schema.name,
+        slug=schema.slug,
+        description=schema.description,
+        tier=schema.tier,
+        created_at=schema.created_at,
+        tables=[CatalogTableResponse.model_validate(t) for t in schema.tables],
+    )
+
+
+@app.delete("/api/catalogs/{catalog_id}/schemas/{schema_id}")
+def delete_schema(
+    catalog_id: str,
+    schema_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "owner")
+    schema = db.query(CatalogSchema).filter_by(id=schema_id, catalog_id=catalog_id).first()
+    if not schema:
+        raise HTTPException(404, "Schema not found")
+    if schema.tier in _MEDALLION_TIERS:
+        raise HTTPException(400, f"Cannot delete the locked '{schema.tier}' medallion schema")
+    db.delete(schema)
+    db.commit()
+    return {"ok": True}
+
+
+# ── Table CRUD ────────────────────────────────────────────────────────────────
+
+
+@app.get(
+    "/api/catalogs/{catalog_id}/schemas/{schema_id}/tables",
+    response_model=list[CatalogTableResponse],
+)
+def list_tables(
+    catalog_id: str,
+    schema_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "read")
+    schema = db.query(CatalogSchema).filter_by(id=schema_id, catalog_id=catalog_id).first()
+    if not schema:
+        raise HTTPException(404, "Schema not found")
+    return [CatalogTableResponse.model_validate(t) for t in schema.tables]
+
+
+@app.post(
+    "/api/catalogs/{catalog_id}/schemas/{schema_id}/tables", response_model=CatalogTableResponse
+)
+def create_table(
+    catalog_id: str,
+    schema_id: str,
+    req: CreateTableRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "write")
+    schema = db.query(CatalogSchema).filter_by(id=schema_id, catalog_id=catalog_id).first()
+    if not schema:
+        raise HTTPException(404, "Schema not found")
+    slug = _slugify(req.name)
+    if db.query(CatalogTable).filter_by(schema_id=schema_id, slug=slug).first():
+        raise HTTPException(400, f"Table slug '{slug}' already exists in this schema")
+    table = CatalogTable(
+        schema_id=schema.id,
+        name=req.name.strip(),
+        slug=slug,
+        description=req.description,
+        s3_path_pattern=req.s3_path_pattern,
+        column_defs=[],
+    )
+    db.add(table)
+    db.commit()
+    db.refresh(table)
+    return CatalogTableResponse.model_validate(table)
+
+
+@app.patch(
+    "/api/catalogs/{catalog_id}/schemas/{schema_id}/tables/{table_id}",
+    response_model=CatalogTableResponse,
+)
+def update_table(
+    catalog_id: str,
+    schema_id: str,
+    table_id: str,
+    req: UpdateTableRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "write")
+    table = db.query(CatalogTable).filter_by(id=table_id, schema_id=schema_id).first()
+    if not table:
+        raise HTTPException(404, "Table not found")
+    if req.description is not None:
+        table.description = req.description
+    if req.s3_path_pattern is not None:
+        table.s3_path_pattern = req.s3_path_pattern
+    if req.column_defs is not None:
+        table.column_defs = [c.model_dump() for c in req.column_defs]
+    db.commit()
+    db.refresh(table)
+    return CatalogTableResponse.model_validate(table)
+
+
+@app.delete("/api/catalogs/{catalog_id}/schemas/{schema_id}/tables/{table_id}")
+def delete_table(
+    catalog_id: str,
+    schema_id: str,
+    table_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "write")
+    table = db.query(CatalogTable).filter_by(id=table_id, schema_id=schema_id).first()
+    if not table:
+        raise HTTPException(404, "Table not found")
+    db.delete(table)
+    db.commit()
+    return {"ok": True}
+
+
+# ── Access management ─────────────────────────────────────────────────────────
+
+
+@app.get("/api/catalogs/{catalog_id}/access", response_model=list[CatalogAccessResponse])
+def list_access(
+    catalog_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "owner")
+    grants = db.query(CatalogAccess).filter(CatalogAccess.catalog_id == catalog_id).all()
+    result = []
+    for g in grants:
+        ws = db.query(Workspace).filter(Workspace.id == g.workspace_id).first()
+        requester = (
+            db.query(User).filter(User.id == g.requested_by).first() if g.requested_by else None
+        )
+        result.append(
+            CatalogAccessResponse(
+                id=g.id,
+                catalog_id=g.catalog_id,
+                workspace_id=g.workspace_id,
+                workspace_name=ws.name if ws else None,
+                mode=g.mode,
+                status=g.status,
+                requested_by_email=requester.email if requester else None,
+                requested_at=g.requested_at,
+                reviewed_at=g.reviewed_at,
+            )
+        )
+    return result
+
+
+@app.post("/api/catalogs/{catalog_id}/access/request")
+def request_access(
+    catalog_id: str,
+    req: RequestAccessRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+
+    # caller must be a workspace admin
+    admin_membership = next(
+        (m for m in current_user.workspace_memberships if m.role == "admin"), None
+    )
+    if not admin_membership and current_user.role != "superadmin":
+        raise HTTPException(403, "Workspace admin access required to request catalog access")
+
+    ws_id = admin_membership.workspace_id if admin_membership else catalog.owner_workspace_id
+    if str(ws_id) == str(catalog.owner_workspace_id):
+        raise HTTPException(400, "Owner workspace already has full access")
+
+    existing = db.query(CatalogAccess).filter_by(catalog_id=catalog_id, workspace_id=ws_id).first()
+    if existing:
+        if existing.status == "approved":
+            raise HTTPException(400, "Access already approved")
+        existing.mode = req.mode
+        existing.status = "pending"
+        existing.requested_by = current_user.id
+        existing.requested_at = __import__("datetime").datetime.now(
+            __import__("datetime").timezone.utc
+        )
+    else:
+        db.add(
+            CatalogAccess(
+                catalog_id=catalog.id,
+                workspace_id=ws_id,
+                mode=req.mode,
+                status="pending",
+                requested_by=current_user.id,
+            )
+        )
+    db.commit()
+
+    owner_emails = _owner_emails(db, catalog)
+    ws = db.query(Workspace).filter(Workspace.id == ws_id).first()
+    threading.Thread(
+        target=send_access_requested,
+        args=(owner_emails, ws.name if ws else "Unknown", catalog.name, req.mode),
+        daemon=True,
+    ).start()
+
+    return {"ok": True}
+
+
+@app.patch("/api/catalogs/{catalog_id}/access/{access_id}")
+def review_access(
+    catalog_id: str,
+    access_id: str,
+    req: ReviewAccessRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "owner")
+
+    grant = db.query(CatalogAccess).filter_by(id=access_id, catalog_id=catalog_id).first()
+    if not grant:
+        raise HTTPException(404, "Access grant not found")
+
+    grant.status = req.status
+    grant.reviewed_by = current_user.id
+    from datetime import datetime
+
+    grant.reviewed_at = datetime.now(UTC)
+    db.commit()
+
+    requester = (
+        db.query(User).filter(User.id == grant.requested_by).first() if grant.requested_by else None
+    )
+    if requester:
+        threading.Thread(
+            target=send_access_reviewed,
+            args=(requester.email, catalog.name, req.status),
+            daemon=True,
+        ).start()
+
+    return {"ok": True}
+
+
+@app.delete("/api/catalogs/{catalog_id}/access/{access_id}")
+def revoke_access(
+    catalog_id: str,
+    access_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    catalog = db.query(Catalog).filter(Catalog.id == catalog_id).first()
+    if not catalog:
+        raise HTTPException(404, "Catalog not found")
+    _assert_catalog_access(db, catalog, current_user, "owner")
+    grant = db.query(CatalogAccess).filter_by(id=access_id, catalog_id=catalog_id).first()
+    if not grant:
+        raise HTTPException(404, "Access grant not found")
+    db.delete(grant)
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/workspaces/{workspace_id}/catalogs", response_model=list[CatalogResponse])
+def workspace_catalogs(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from sqlalchemy import or_
+
+    shared_ids = db.query(CatalogAccess.catalog_id).filter(
+        CatalogAccess.workspace_id == workspace_id, CatalogAccess.status == "approved"
+    )
+    catalogs = (
+        db.query(Catalog)
+        .filter(or_(Catalog.owner_workspace_id == workspace_id, Catalog.id.in_(shared_ids)))
+        .order_by(Catalog.created_at)
+        .all()
+    )
+    return [_catalog_response(c, current_user, db) for c in catalogs]

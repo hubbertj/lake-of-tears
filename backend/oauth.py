@@ -1,16 +1,16 @@
 from __future__ import annotations
+
 import os
 import secrets
 from urllib.parse import urlencode
 
 import httpx
 import jwt
+from auth import COOKIE_NAME, SECRET_KEY, TOKEN_MAX_AGE, create_token
 from fastapi import HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
-from sqlalchemy.orm import Session
-
-from auth import SECRET_KEY, COOKIE_NAME, TOKEN_MAX_AGE, create_token
 from models import OAuthAccount, User, Workspace, WorkspaceMember
+from sqlalchemy.orm import Session
 
 _STATE_COOKIE = "oauth_state"
 _BASE_URL = lambda: os.getenv("AUTH_BASE_URL", "http://localhost")  # noqa: E731
@@ -77,13 +77,19 @@ def get_oauth_redirect(provider: str, request: Request, response: Response) -> R
     state_token = jwt.encode({"state": state, "next": next_url}, SECRET_KEY, algorithm="HS256")
 
     callback_url = f"{_BASE_URL()}/api/auth/oauth/{provider}/callback"
-    auth_url = cfg["auth_url"] + "?" + urlencode({
-        "client_id": cfg["client_id"],
-        "redirect_uri": callback_url,
-        "response_type": "code",
-        "scope": cfg["scope"],
-        "state": state,
-    })
+    auth_url = (
+        cfg["auth_url"]
+        + "?"
+        + urlencode(
+            {
+                "client_id": cfg["client_id"],
+                "redirect_uri": callback_url,
+                "response_type": "code",
+                "scope": cfg["scope"],
+                "state": state,
+            }
+        )
+    )
 
     resp = RedirectResponse(url=auth_url)
     resp.set_cookie(_STATE_COOKIE, state_token, httponly=True, samesite="lax", max_age=600)
@@ -192,6 +198,7 @@ def handle_oauth_callback(provider: str, request: Request, response: Response, d
         if is_first:
             # Bootstrap default workspace
             from main import _create_default_workspace
+
             _create_default_workspace(db, user)
         else:
             default_ws = db.query(Workspace).filter(Workspace.slug == "default").first()
@@ -199,7 +206,11 @@ def handle_oauth_callback(provider: str, request: Request, response: Response, d
                 db.add(WorkspaceMember(workspace_id=default_ws.id, user_id=user.id, role="user"))
 
     # Link OAuth account
-    if not db.query(OAuthAccount).filter_by(provider=provider, provider_user_id=provider_user_id).first():
+    if (
+        not db.query(OAuthAccount)
+        .filter_by(provider=provider, provider_user_id=provider_user_id)
+        .first()
+    ):
         db.add(OAuthAccount(user_id=user.id, provider=provider, provider_user_id=provider_user_id))
 
     db.commit()
@@ -209,7 +220,14 @@ def handle_oauth_callback(provider: str, request: Request, response: Response, d
         resp.delete_cookie(_STATE_COOKIE)
         return resp
 
-    token = create_token({"sub": str(user.id), "email": user.email, "role": user.role, "display_name": user.display_name or ""})
+    token = create_token(
+        {
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            "display_name": user.display_name or "",
+        }
+    )
     next_url = state_data.get("next", "/")
     resp = RedirectResponse(url=next_url)
     resp.delete_cookie(_STATE_COOKIE)

@@ -1,6 +1,6 @@
 import os
 import pathlib
-from typing import List
+
 from google import genai
 
 
@@ -14,12 +14,13 @@ def _load_env():
                     k, _, v = line.partition("=")
                     os.environ.setdefault(k.strip(), v.strip())
 
+
 _load_env()
 
 _client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 
-def embed_texts(texts: List[str], task_type: str = "RETRIEVAL_DOCUMENT") -> List[List[float]]:
+def embed_texts(texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT") -> list[list[float]]:
     result = _client.models.embed_content(
         model="gemini-embedding-001",
         contents=texts,
@@ -28,7 +29,7 @@ def embed_texts(texts: List[str], task_type: str = "RETRIEVAL_DOCUMENT") -> List
     return [e.values for e in result.embeddings]
 
 
-def embed_query(text: str) -> List[float]:
+def embed_query(text: str) -> list[float]:
     result = _client.models.embed_content(
         model="gemini-embedding-001",
         contents=[text],

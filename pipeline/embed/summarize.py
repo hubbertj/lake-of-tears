@@ -1,19 +1,21 @@
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
 import os
+from datetime import date, timedelta
+
 import pandas as pd
 from google import genai
-from datetime import date, timedelta
 from storage_writer import get_duckdb_con, write_to_storage
 
 _client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
 SOURCES = {
-    "jellyfin": ("Name",  "raw/jellyfin/**/*.parquet"),
-    "truenas":  ("name",  "raw/truenas/**/*.parquet"),
-    "weather":  ("temperature_2m", "raw/weather/**/*.parquet"),
+    "jellyfin": ("Name", "raw/jellyfin/**/*.parquet"),
+    "truenas": ("name", "raw/truenas/**/*.parquet"),
+    "weather": ("temperature_2m", "raw/weather/**/*.parquet"),
 }
 
 
@@ -34,7 +36,7 @@ def summarize_day(source: str, text_col: str, parquet_glob: str):
     response = _client.models.generate_content(
         model="gemini-2.5-flash",
         contents=f"Summarize the following {source} activity from {yesterday} "
-                 f"in 3-5 bullet points:\n\n{content}",
+        f"in 3-5 bullet points:\n\n{content}",
     )
     summary = response.text
 

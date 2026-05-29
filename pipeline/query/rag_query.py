@@ -1,11 +1,13 @@
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parents[2]))
 
 import os
+
 import duckdb
-from google import genai
 from gemini_embedder import embed_query
+from google import genai
 
 _client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
 
@@ -30,19 +32,18 @@ def rag(question: str, top_k: int = 10) -> str:
         LIMIT {top_k}
     """).df()
 
-    context = "\n".join(
-        f"[{r.source}] {r.content}" for _, r in results.iterrows()
-    )
+    context = "\n".join(f"[{r.source}] {r.content}" for _, r in results.iterrows())
 
     response = _client.models.generate_content(
         model="gemini-2.5-flash",
         contents=f"You are an assistant that answers questions about home data.\n\n"
-                 f"Context from data lake:\n{context}\n\n"
-                 f"Question: {question}",
+        f"Context from data lake:\n{context}\n\n"
+        f"Question: {question}",
     )
     return response.text
 
 
 if __name__ == "__main__":
     import sys
+
     print(rag(" ".join(sys.argv[1:])))

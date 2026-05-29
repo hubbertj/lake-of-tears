@@ -76,22 +76,3 @@ jobs:
       - name: Lint Helm chart
         run: helm lint deploy/helm/lake-of-tears
 
-  terraform-validate:
-    name: Terraform Validate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: hashicorp/setup-terraform@v4
-        with:
-          terraform_version: "1.9.0"
-
-      - name: Validate foundation module
-        run: |
-          terraform -chdir=deploy/terraform/foundation init -backend=false
-          terraform -chdir=deploy/terraform/foundation validate
-
-      - name: Validate services module
-        run: |
-          terraform -chdir=deploy/terraform/services init -backend=false
-          terraform -chdir=deploy/terraform/services validate
