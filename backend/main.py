@@ -116,6 +116,7 @@ def _create_default_catalog(db: Session, ws: Workspace, user: User) -> Catalog:
         description=None,
         owner_workspace_id=ws.id,
         created_by=user.id,
+        is_default=True,
     )
     db.add(catalog)
     db.flush()
@@ -136,15 +137,18 @@ def _create_default_workspace(db: Session, user: User) -> Workspace:
 def _backfill_default_catalogs(db: Session) -> None:
     workspaces = db.query(Workspace).all()
     for ws in workspaces:
-        exists = (
+        existing = (
             db.query(Catalog)
             .filter(
                 Catalog.owner_workspace_id == ws.id,
                 func.lower(Catalog.name) == "default",
             )
+            .order_by(Catalog.created_at.asc())
             .first()
         )
-        if exists:
+        if existing:
+            if not existing.is_default:
+                existing.is_default = True
             continue
         creator_id = ws.created_by
         user = db.query(User).filter(User.id == creator_id).first() if creator_id else None
@@ -624,6 +628,7 @@ def _catalog_response(catalog: Catalog, user: User, db: Session) -> CatalogRespo
         created_at=catalog.created_at,
         deleted_at=catalog.deleted_at,
         scheduled_purge_at=catalog.scheduled_purge_at,
+        is_default=catalog.is_default,
         schemas=[
             CatalogSchemaResponse(
                 id=s.id,
@@ -769,6 +774,8 @@ def delete_catalog(
     if not catalog:
         raise HTTPException(404, "Catalog not found")
     _assert_catalog_access(db, catalog, current_user, "owner")
+    if catalog.is_default:
+        raise HTTPException(409, "The default catalog cannot be deleted")
     if catalog.deleted_at is not None:
         raise HTTPException(409, "Catalog is already pending deletion")
     grace_days = _get_soft_delete_days(db)
@@ -831,6 +838,8 @@ def purge_catalog(
     if not catalog:
         raise HTTPException(404, "Catalog not found")
     _assert_catalog_access(db, catalog, current_user, "owner")
+    if catalog.is_default:
+        raise HTTPException(409, "The default catalog cannot be deleted")
 
     # Workspace admins can only purge soft-deleted catalogs; superadmins can purge any
     if current_user.role != "superadmin" and catalog.deleted_at is None:

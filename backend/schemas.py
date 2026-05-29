@@ -207,6 +207,7 @@ class CatalogResponse(BaseModel):
     created_at: datetime
     deleted_at: datetime | None = None
     scheduled_purge_at: datetime | None = None
+    is_default: bool = False
     schemas: list[CatalogSchemaResponse] = []
     my_access: str | None = None  # 'owner' | 'write' | 'read' | None
 

@@ -108,6 +108,7 @@ class Catalog(Base):
     scheduled_purge_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     schemas: Mapped[list["CatalogSchema"]] = relationship(
         back_populates="catalog", cascade="all, delete-orphan", order_by="CatalogSchema.name"

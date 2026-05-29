@@ -108,7 +108,9 @@
           <div class="text-[11px] text-gray-500">{{ cat.schemas | length }} schema{{ 's' if cat.schemas | length != 1 }}</div>
           {% endif %}
         </div>
-        {% if is_pending %}
+        {% if cat.is_default %}
+        <span class="text-[11px] text-gray-600 shrink-0 italic">protected</span>
+        {% elif is_pending %}
         <form action="/settings/workspace/catalogs/{{ cat.id }}/reactivate" method="post" class="shrink-0">
           <button type="submit" class="text-xs px-2.5 py-1 rounded border border-emerald-700/50 text-emerald-500 hover:text-emerald-300 transition-colors">Reactivate</button>
         </form>
