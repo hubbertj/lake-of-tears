@@ -55,6 +55,8 @@ spec:
                 secretKeyRef:
                   name: {{ include "lake-of-tears.fullname" . }}-credentials
                   key: authSecretKey
+            - name: BACKEND_URL
+              value: "http://{{ include "lake-of-tears.fullname" . }}-backend:8000"
             - name: AUTH_ENABLED
               value: {{ .Values.backend.enabled | quote }}
           livenessProbe:
