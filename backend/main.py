@@ -614,8 +614,11 @@ def _resolve_workspace(workspace_id: str | None, user: User, db: Session) -> Wor
             raise HTTPException(404, "Workspace not found")
         if user.role != "superadmin":
             member = next(
-                (m for m in user.workspace_memberships
-                 if str(m.workspace_id) == workspace_id and m.role == "admin"),
+                (
+                    m
+                    for m in user.workspace_memberships
+                    if str(m.workspace_id) == workspace_id and m.role == "admin"
+                ),
                 None,
             )
             if not member:
