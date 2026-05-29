@@ -1,15 +1,14 @@
 from __future__ import annotations
+
 import os
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import jwt
+from database import get_db
 from fastapi import Cookie, Depends, Header, HTTPException
+from models import User, WorkspaceMember
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
-
-from database import get_db
-from models import User, WorkspaceMember
 
 SECRET_KEY = os.getenv("AUTH_SECRET_KEY", "dev-secret-please-change-in-production")
 ALGORITHM = "HS256"
@@ -29,7 +28,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 def create_token(data: dict) -> str:
-    payload = {**data, "exp": datetime.now(timezone.utc) + timedelta(days=TOKEN_EXPIRE_DAYS)}
+    payload = {**data, "exp": datetime.now(UTC) + timedelta(days=TOKEN_EXPIRE_DAYS)}
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -38,8 +37,8 @@ def decode_token(token: str) -> dict:
 
 
 def get_current_user(
-    lake_token: Optional[str] = Cookie(default=None),
-    authorization: Optional[str] = Header(default=None),
+    lake_token: str | None = Cookie(default=None),
+    authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
 ) -> User:
     token = lake_token

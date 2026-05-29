@@ -1,6 +1,7 @@
+from datetime import datetime
+
 from airflow import DAG
 from airflow.operators.bash import BashOperator
-from datetime import datetime
 
 with DAG(
     dag_id="ingest_truenas_logs",

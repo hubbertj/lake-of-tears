@@ -1,59 +1,275 @@
 {% extends "base.html" %}
 {% block title %}Catalog — Lake of Tears{% endblock %}
+
 {% block content %}
+<div class="max-w-4xl mx-auto">
 
-<div class="max-w-5xl mx-auto space-y-6">
-
-  <div class="flex items-center justify-between">
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-6">
     <div>
       <h1 class="text-xl font-semibold text-gray-100">Catalog</h1>
-      <p class="text-sm text-gray-500 mt-1">Parquet datasets stored in MinIO — partitioned by <code class="text-xs bg-gray-800 px-1 py-0.5 rounded text-gray-300">year=/month=/day=</code></p>
+      <p class="text-sm text-gray-500 mt-0.5">Browse schemas and tables your workspace has access to</p>
     </div>
+    {% if request.state.user %}
+    <button onclick="document.getElementById('create-catalog-modal').classList.remove('hidden')"
+            class="btn-primary">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+      </svg>
+      New Catalog
+    </button>
+    {% endif %}
   </div>
 
-  {% if data.ok %}
-  <div class="card overflow-hidden">
-    <table class="w-full text-sm">
-      <thead>
-        <tr class="border-b border-gray-800 text-left">
-          <th class="px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Path</th>
-          <th class="px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right">Objects</th>
-          <th class="px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right">Size</th>
-          <th class="px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide text-right">Last Modified</th>
-          <th class="px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide"></th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-gray-800/60">
-        {% for row in data.rows %}
-        <tr class="hover:bg-white/[0.02] transition-colors">
-          <td class="px-5 py-3 font-mono text-xs text-blue-400">{{ row.prefix }}/</td>
-          <td class="px-5 py-3 text-gray-400 text-right tabular-nums">{{ row.objects }}</td>
-          <td class="px-5 py-3 text-gray-400 text-right tabular-nums">{{ row.size }}</td>
-          <td class="px-5 py-3 text-gray-500 text-right text-xs">{{ row.last_modified }}</td>
-          <td class="px-5 py-3 text-right">
-            <a href="/sql?sql={{ row.s3_path | urlencode }}"
-               class="text-xs text-gray-600 hover:text-blue-400 transition-colors font-mono">
-              Query →
-            </a>
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="5" class="px-5 py-12 text-center text-gray-600 text-sm">
-            No datasets found. Start a pipeline run to ingest data.
-          </td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+  <!-- Empty state -->
+  {% if not catalogs %}
+  <div class="card p-12 flex flex-col items-center gap-3 text-center">
+    <svg class="w-10 h-10 text-gray-700" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M3 14h18M10 3v18M3 6a3 3 0 013-3h12a3 3 0 013 3v12a3 3 0 01-3 3H6a3 3 0 01-3-3V6z"/>
+    </svg>
+    <p class="text-gray-400 font-medium">No catalogs yet</p>
+    <p class="text-gray-600 text-sm">Create your first catalog to start organising your data.</p>
   </div>
 
+  <!-- Catalog list -->
   {% else %}
-  <div class="card p-8 text-center">
-    <p class="text-gray-500 text-sm">Could not read from MinIO.</p>
-    <p class="text-gray-600 text-xs mt-1 font-mono">{{ data.error }}</p>
+  <div class="flex flex-col gap-2" id="catalog-list">
+    {% for catalog in catalogs %}
+    <div class="card overflow-hidden" id="catalog-{{ catalog.id }}">
+
+      <!-- Catalog row -->
+      <button
+        onclick="toggleCatalog('{{ catalog.id }}')"
+        class="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.03] transition-colors">
+
+        <svg id="chev-cat-{{ catalog.id }}" class="w-4 h-4 text-gray-600 shrink-0 transition-transform duration-150 -rotate-90"
+             fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+        </svg>
+
+        <svg class="w-4 h-4 text-blue-400 shrink-0" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
+        </svg>
+
+        <span class="font-semibold text-gray-100 text-sm flex-1">{{ catalog.name }}</span>
+
+        {% if catalog.my_access == 'owner' %}
+        <span class="text-[10px] px-2 py-0.5 rounded-full border border-blue-700/50 text-blue-400 bg-blue-900/20 font-medium shrink-0">owned</span>
+        {% elif catalog.my_access == 'write' %}
+        <span class="text-[10px] px-2 py-0.5 rounded-full border border-emerald-700/50 text-emerald-400 bg-emerald-900/20 font-medium shrink-0">write</span>
+        {% elif catalog.my_access == 'read' %}
+        <span class="text-[10px] px-2 py-0.5 rounded-full border border-gray-700 text-gray-400 bg-gray-800/30 font-medium shrink-0">read</span>
+        {% endif %}
+
+        {% if catalog.description %}
+        <span class="text-xs text-gray-600 truncate max-w-[220px] hidden md:block">{{ catalog.description }}</span>
+        {% endif %}
+      </button>
+
+      <!-- Schemas -->
+      <div id="schemas-{{ catalog.id }}" class="hidden border-t border-white/[0.05]">
+        {% if catalog.schemas %}
+          {% for schema in catalog.schemas %}
+          <div class="border-b border-white/[0.04] last:border-0">
+
+            <!-- Schema row -->
+            <button
+              onclick="toggleSchema('{{ schema.id }}')"
+              class="w-full flex items-center gap-3 pl-10 pr-4 py-2.5 text-left hover:bg-white/[0.03] transition-colors
+                {% if schema.tier == 'bronze' %}border-l-2 border-[#cd7f32]
+                {% elif schema.tier == 'silver' %}border-l-2 border-[#a8a9ad]
+                {% elif schema.tier == 'gold' %}border-l-2 border-[#ffd700]
+                {% else %}border-l-2 border-transparent{% endif %}">
+
+              <svg id="chev-schema-{{ schema.id }}" class="w-3.5 h-3.5 text-gray-600 shrink-0 transition-transform duration-150 -rotate-90"
+                   fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+              </svg>
+
+              {% if schema.tier == 'bronze' %}
+              <img src="/static/img/medallion/bronze-ore.jpg" alt="bronze" class="w-5 h-5 object-contain shrink-0 rounded-sm"/>
+              {% elif schema.tier == 'silver' %}
+              <img src="/static/img/medallion/silver-ore.jpg" alt="silver" class="w-5 h-5 object-contain shrink-0 rounded-sm"/>
+              {% elif schema.tier == 'gold' %}
+              <img src="/static/img/medallion/gold-ore.jpg" alt="gold" class="w-5 h-5 object-contain shrink-0 rounded-sm"/>
+              {% else %}
+              <svg class="w-4 h-4 text-gray-500 shrink-0" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/>
+              </svg>
+              {% endif %}
+
+              <span class="text-sm font-medium shrink-0
+                {% if schema.tier == 'bronze' %}text-[#cd7f32]
+                {% elif schema.tier == 'silver' %}text-[#a8a9ad]
+                {% elif schema.tier == 'gold' %}text-[#b8860b]
+                {% else %}text-gray-300{% endif %}">
+                {{ schema.name }}
+              </span>
+
+              <span class="ml-auto text-[11px] text-gray-600">
+                {{ schema.tables | length }} table{{ 's' if schema.tables | length != 1 }}
+              </span>
+            </button>
+
+            <!-- Tables -->
+            <div id="tables-{{ schema.id }}" class="hidden bg-black/10">
+              {% if schema.tables %}
+                {% for table in schema.tables %}
+                <div class="flex items-center gap-3 pl-16 pr-4 py-2 hover:bg-white/[0.04] cursor-pointer group border-b border-white/[0.03] last:border-0"
+                     onclick="showTable('{{ catalog.id }}', '{{ schema.id }}', {{ table | tojson }})">
+
+                  <svg class="w-3.5 h-3.5 text-gray-600 shrink-0" fill="none" stroke="currentColor" stroke-width="1.75" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                  </svg>
+
+                  <span class="text-sm text-gray-400 group-hover:text-gray-200 transition-colors flex-1">{{ table.name }}</span>
+
+                  {% if table.schema_drift %}
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-yellow-900/30 text-yellow-500 border border-yellow-800/40 shrink-0">drift</span>
+                  {% endif %}
+
+                  {% if table.column_defs and table.column_defs | length > 0 %}
+                  <span class="text-[11px] text-gray-600 shrink-0">{{ table.column_defs | length }} cols</span>
+                  {% elif table.s3_path_pattern %}
+                  <span class="text-[11px] text-gray-700 shrink-0 italic">no schema yet</span>
+                  {% endif %}
+                </div>
+                {% endfor %}
+              {% else %}
+              <div class="pl-16 pr-4 py-3 text-sm text-gray-600 italic">No tables in this schema yet.</div>
+              {% endif %}
+            </div>
+
+          </div>
+          {% endfor %}
+        {% else %}
+        <div class="pl-10 pr-4 py-3 text-sm text-gray-600 italic">No schemas found.</div>
+        {% endif %}
+      </div>
+
+    </div>
+    {% endfor %}
   </div>
   {% endif %}
 
 </div>
+
+<!-- Table detail side panel -->
+<div id="table-panel" class="fixed inset-y-0 right-0 w-[420px] bg-[#161616] border-l border-white/[0.08] shadow-2xl z-40 hidden" style="display:none;flex-direction:column">
+  <div class="flex items-center justify-between px-5 py-4 border-b border-white/[0.08] shrink-0">
+    <h2 class="font-semibold text-gray-100 text-sm" id="panel-title">Table detail</h2>
+    <button onclick="closePanel()" class="text-gray-500 hover:text-gray-200 transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+  <div class="flex-1 overflow-y-auto p-5 text-sm" id="panel-body"></div>
+</div>
+<div id="panel-overlay" class="hidden fixed inset-0 z-30 bg-black/40" onclick="closePanel()"></div>
+
+<!-- Create Catalog Modal -->
+<div id="create-catalog-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+  <div class="bg-[#1a1a1a] border border-white/[0.08] rounded-xl shadow-2xl w-full max-w-md p-6">
+    <h2 class="text-base font-semibold text-gray-100 mb-4">Create catalog</h2>
+    <form action="/catalog/create" method="post" class="flex flex-col gap-3">
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Name</label>
+        <input name="name" type="text" required placeholder="e.g. production" class="input-dark"/>
+      </div>
+      <div>
+        <label class="block text-xs text-gray-500 mb-1">Description <span class="text-gray-700">(optional)</span></label>
+        <input name="description" type="text" placeholder="What data lives here?" class="input-dark"/>
+      </div>
+      <div class="flex gap-2 justify-end mt-2">
+        <button type="button" onclick="document.getElementById('create-catalog-modal').classList.add('hidden')"
+                class="btn-ghost">Cancel</button>
+        <button type="submit" class="btn-primary">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function _key(id) { return 'lot-open-' + id; }
+
+function toggleCatalog(id) {
+  const el = document.getElementById('schemas-' + id);
+  const ch = document.getElementById('chev-cat-' + id);
+  const open = el.classList.toggle('hidden');
+  ch.classList.toggle('-rotate-90', open);
+  sessionStorage.setItem(_key('c' + id), open ? '' : '1');
+}
+
+function toggleSchema(id) {
+  const el = document.getElementById('tables-' + id);
+  const ch = document.getElementById('chev-schema-' + id);
+  const open = el.classList.toggle('hidden');
+  ch.classList.toggle('-rotate-90', open);
+  sessionStorage.setItem(_key('s' + id), open ? '' : '1');
+}
+
+// Restore expanded state
+document.querySelectorAll('[id^="schemas-"]').forEach(el => {
+  const id = el.id.slice(8);
+  if (sessionStorage.getItem(_key('c' + id)) === '1') {
+    el.classList.remove('hidden');
+    const ch = document.getElementById('chev-cat-' + id);
+    if (ch) ch.classList.remove('-rotate-90');
+  }
+});
+document.querySelectorAll('[id^="tables-"]').forEach(el => {
+  const id = el.id.slice(7);
+  if (sessionStorage.getItem(_key('s' + id)) === '1') {
+    el.classList.remove('hidden');
+    const ch = document.getElementById('chev-schema-' + id);
+    if (ch) ch.classList.remove('-rotate-90');
+  }
+});
+
+function showTable(catalogId, schemaId, table) {
+  const panel = document.getElementById('table-panel');
+  panel.style.display = 'flex';
+  document.getElementById('panel-overlay').classList.remove('hidden');
+  document.getElementById('panel-title').textContent = table.name;
+  renderTablePanel(table, catalogId, schemaId);
+}
+
+function closePanel() {
+  document.getElementById('table-panel').style.display = 'none';
+  document.getElementById('panel-overlay').classList.add('hidden');
+}
+
+function renderTablePanel(t, catalogId, schemaId) {
+  const cols = (t.column_defs || []).map(c => `
+    <tr class="${c.deprecated ? 'opacity-40' : ''}">
+      <td class="py-1.5 pr-3 font-mono text-xs text-gray-300">${c.name}${c.deprecated ? ' <span class="text-gray-600 text-[10px]">(deprecated)</span>' : ''}</td>
+      <td class="py-1.5 pr-3 font-mono text-xs text-blue-400">${c.type}</td>
+      <td class="py-1.5 text-xs text-gray-500">${c.description || ''}</td>
+    </tr>`).join('');
+
+  const noSchema = (!t.column_defs || !t.column_defs.length)
+    ? `<p class="text-gray-600 italic text-xs mt-1">Schema not yet available — data hasn't been ingested yet.</p>` : '';
+
+  const sqlPath = t.s3_path_pattern || '';
+  const querySQL = sqlPath ? encodeURIComponent(`SELECT * FROM read_parquet('${sqlPath}') LIMIT 100`) : '';
+
+  document.getElementById('panel-body').innerHTML = `
+    ${t.description ? `<p class="text-gray-400 mb-4 text-sm">${t.description}</p>` : ''}
+    ${t.schema_drift ? `<div class="mb-4 px-3 py-2 rounded-md bg-yellow-900/20 border border-yellow-800/40 text-yellow-400 text-xs">⚠ Schema drift detected — columns have changed since last refresh.</div>` : ''}
+    <div class="mb-4">
+      <p class="text-[10px] text-gray-600 uppercase tracking-wider font-semibold mb-1.5">S3 Path</p>
+      <code class="text-xs text-gray-400 bg-black/30 px-2 py-1.5 rounded block break-all">${sqlPath || '—'}</code>
+    </div>
+    <div class="mb-5">
+      <p class="text-[10px] text-gray-600 uppercase tracking-wider font-semibold mb-1.5">Columns</p>
+      ${noSchema}
+      ${cols ? `<table class="w-full"><tbody>${cols}</tbody></table>` : ''}
+    </div>
+    <div class="flex gap-2 pt-3 border-t border-white/[0.06]">
+      ${querySQL ? `<a href="/sql?q=${querySQL}" class="btn-primary text-xs py-1.5">Query in SQL Editor</a>` : ''}
+    </div>
+  `;
+}
+</script>
 {% endblock %}
