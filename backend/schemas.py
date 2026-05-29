@@ -203,11 +203,18 @@ class CatalogResponse(BaseModel):
     slug: str
     description: str | None
     owner_workspace_id: uuid.UUID
+    owner_workspace_name: str | None = None
     created_at: datetime
+    deleted_at: datetime | None = None
+    scheduled_purge_at: datetime | None = None
     schemas: list[CatalogSchemaResponse] = []
     my_access: str | None = None  # 'owner' | 'write' | 'read' | None
 
     model_config = {"from_attributes": True}
+
+
+class PurgeCatalogRequest(BaseModel):
+    confirm_name: str
 
 
 class RequestAccessRequest(BaseModel):
@@ -240,8 +247,39 @@ class CatalogAccessResponse(BaseModel):
     workspace_name: str | None = None
     mode: str
     status: str
+    suspended: bool = False
     requested_by_email: str | None = None
     requested_at: datetime
     reviewed_at: datetime | None
 
     model_config = {"from_attributes": True}
+
+
+class SharedCatalogSettingsItem(BaseModel):
+    access_id: uuid.UUID
+    catalog_id: uuid.UUID
+    catalog_name: str
+    owner_workspace_id: uuid.UUID
+    owner_workspace_name: str | None = None
+    status: str
+    suspended: bool = False
+
+
+class WorkspaceCatalogSettingsResponse(BaseModel):
+    owned: list[CatalogResponse]
+    shared: list[SharedCatalogSettingsItem]
+
+
+class SystemSettingResponse(BaseModel):
+    catalog_soft_delete_days: int
+
+
+class UpdateSystemSettingsRequest(BaseModel):
+    catalog_soft_delete_days: int
+
+    @field_validator("catalog_soft_delete_days")
+    @classmethod
+    def valid_days(cls, v: int) -> int:
+        if v < 0 or v > 365:
+            raise ValueError("Days must be between 0 and 365")
+        return v

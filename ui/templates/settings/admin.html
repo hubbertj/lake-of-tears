@@ -89,5 +89,29 @@
         class="w-full input-dark text-sm" style="background-color: var(--c-input-bg); border-color: var(--c-input-border);" />
     </form>
   </div>
+
+  <!-- Catalog Settings -->
+  <div class="card p-6">
+    <h2 class="text-sm font-semibold text-gray-300 mb-1">Catalog Settings</h2>
+    <p class="text-xs text-gray-500 mb-5">Configure how catalog deletions behave across all workspaces.</p>
+    <form action="/settings/admin/catalog-settings" method="post" class="space-y-4">
+      <div>
+        <label class="block text-xs text-gray-400 font-medium mb-1">Soft Delete Grace Period (days)</label>
+        <p class="text-[11px] text-gray-600 mb-2">When a workspace admin deletes a catalog it enters a grace period before permanent deletion. Set to <code class="text-gray-500">0</code> to disable soft delete — deletions will be permanent immediately.</p>
+        <div class="flex items-center gap-3">
+          <input type="number" name="catalog_soft_delete_days" min="0" max="365" required
+                 value="{{ admin_settings.catalog_soft_delete_days | default(30) }}"
+                 class="w-24 input-dark text-sm" style="background-color: var(--c-input-bg); border-color: var(--c-input-border);" />
+          <span class="text-xs text-gray-500">days (0–365)</span>
+        </div>
+        {% if admin_settings.catalog_soft_delete_days == 0 %}
+        <p class="text-xs text-yellow-600 mt-2">⚠ Soft delete is disabled — catalog deletions are permanent immediately.</p>
+        {% endif %}
+      </div>
+      <div class="flex justify-end">
+        <button type="submit" class="btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
 </div>
 {% endblock %}
