@@ -54,11 +54,23 @@ from schemas import (
     WorkspaceMemberResponse,
     WorkspaceResponse,
 )
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Lake of Tears Auth API", docs_url=None, redoc_url=None)
+
+
+@app.on_event("startup")
+def on_startup():
+    from database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        _backfill_default_catalogs(db)
+    finally:
+        db.close()
 
 app.add_middleware(
     CORSMiddleware,
@@ -86,13 +98,52 @@ def _unique_slug(db: Session, base: str) -> str:
     return slug
 
 
+def _create_default_catalog(db: Session, ws: Workspace, user: User) -> Catalog:
+    slug = _unique_catalog_slug(db, "default")
+    catalog = Catalog(
+        name="default",
+        slug=slug,
+        description=None,
+        owner_workspace_id=ws.id,
+        created_by=user.id,
+    )
+    db.add(catalog)
+    db.flush()
+    _seed_medallion_schemas(db, catalog)
+    return catalog
+
+
 def _create_default_workspace(db: Session, user: User) -> Workspace:
     slug = _unique_slug(db, "default")
     ws = Workspace(name="Default", slug=slug, description="Default workspace", created_by=user.id)
     db.add(ws)
     db.flush()
     db.add(WorkspaceMember(workspace_id=ws.id, user_id=user.id, role="admin"))
+    _create_default_catalog(db, ws, user)
     return ws
+
+
+def _backfill_default_catalogs(db: Session) -> None:
+    workspaces = db.query(Workspace).all()
+    for ws in workspaces:
+        exists = (
+            db.query(Catalog)
+            .filter(
+                Catalog.owner_workspace_id == ws.id,
+                func.lower(Catalog.name) == "default",
+            )
+            .first()
+        )
+        if exists:
+            continue
+        creator_id = ws.created_by
+        user = db.query(User).filter(User.id == creator_id).first() if creator_id else None
+        if not user:
+            user = db.query(User).filter(User.role == "superadmin").first()
+        if not user:
+            continue
+        _create_default_catalog(db, ws, user)
+    db.commit()
 
 
 def _set_auth_cookie(response: Response, user: User) -> None:
@@ -281,6 +332,7 @@ def create_workspace(
     db.add(ws)
     db.flush()
     db.add(WorkspaceMember(workspace_id=ws.id, user_id=current_user.id, role="admin"))
+    _create_default_catalog(db, ws, current_user)
     db.commit()
     db.refresh(ws)
     return _workspace_response(ws, current_user)
@@ -591,6 +643,11 @@ def create_catalog(
     current_user: User = Depends(get_current_user),
 ):
     ws = _resolve_workspace(req.workspace_id, current_user, db)
+    if db.query(Catalog).filter(
+        Catalog.owner_workspace_id == ws.id,
+        func.lower(Catalog.name) == req.name.strip().lower(),
+    ).first():
+        raise HTTPException(409, "A catalog with that name already exists in this workspace")
     slug = _unique_catalog_slug(db, _slugify(req.name))
     catalog = Catalog(
         name=req.name.strip(),
