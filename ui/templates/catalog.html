@@ -173,6 +173,7 @@
   <div class="bg-[#1a1a1a] border border-white/[0.08] rounded-xl shadow-2xl w-full max-w-md p-6">
     <h2 class="text-base font-semibold text-gray-100 mb-4">Create catalog</h2>
     <form action="/catalog/create" method="post" class="flex flex-col gap-3">
+      <input type="hidden" name="workspace_id" value="{{ request.state.workspace.id if request.state.workspace else '' }}"/>
       <div>
         <label class="block text-xs text-gray-500 mb-1">Name</label>
         <input name="name" type="text" required placeholder="e.g. production" class="input-dark"/>
