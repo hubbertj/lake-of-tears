@@ -445,6 +445,10 @@ async def catalog_create(
     workspace_id: str = Form(""),
 ):
     token = request.cookies.get("lake_token")
+    # Prefer the live session workspace over the form field — the form value is
+    # baked in at page-render time and can be stale (cached page, back-nav, etc.).
+    ws = request.state.workspace
+    effective_workspace_id = (str(ws["id"]) if ws else None) or workspace_id or None
     if token:
         _backend_post(
             "/api/catalogs",
@@ -452,7 +456,7 @@ async def catalog_create(
             {
                 "name": name,
                 "description": description or None,
-                "workspace_id": workspace_id or None,
+                "workspace_id": effective_workspace_id,
             },
         )
     return RedirectResponse(url="/catalog", status_code=302)
