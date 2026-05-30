@@ -32,6 +32,7 @@ MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "datalake")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 MINIO_CONSOLE_URL = os.getenv("MINIO_CONSOLE_URL", "http://localhost:9001")
+SUPERSET_URL = os.getenv("SUPERSET_URL", "http://localhost:8088")
 JUPYTER_TOKEN = os.getenv("JUPYTER_TOKEN", "")
 
 SOURCES = ["stripe", "shopify", "hubspot", "postgres", "weather"]
@@ -519,7 +520,7 @@ async def dashboards(request: Request):
         {
             "request": request,
             "page": "dashboards",
-            "embed_url": "/superset/",
+            "embed_url": SUPERSET_URL,
             "embed_title": "Visualizations",
             "embed_service": "Apache Superset",
         },

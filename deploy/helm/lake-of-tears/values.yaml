@@ -68,6 +68,11 @@ lakeui:
   #      http://localhost:9001        (local Docker Compose)
   minioConsoleUrl: ""
 
+  # Full URL to the Superset instance (used as iframe src in the Visualizations page).
+  # In Kubernetes: set to http(s)://<ingress.supersetHost>
+  # In local Docker Compose: set to http://localhost:8088
+  supersetUrl: ""
+
   service:
     port: 3000
 
@@ -277,8 +282,7 @@ ingress:
   enabled: true
   className: nginx
 
-  # Primary hostname — serves Lake UI, Notebooks (/jupyter/), Pipelines (/airflow/),
-  # Dashboards (/superset/)
+  # Primary hostname — serves Lake UI, Notebooks (/jupyter/), Pipelines (/airflow/)
   host: lake.example.com
 
   # MinIO console is exposed on its own subdomain.
@@ -288,6 +292,10 @@ ingress:
 
   # MinIO S3 API hostname (for external S3 clients and tools like DBeaver)
   minioApiHost: minio-api.example.com
+
+  # Superset is exposed on its own subdomain (path-based proxying breaks asset URLs).
+  # Set lakeui.supersetUrl to http(s)://<supersetHost> so the UI iframe points here.
+  supersetHost: superset.example.com
 
   # Additional annotations merged onto every Ingress resource
   annotations: {}

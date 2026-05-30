@@ -15,12 +15,18 @@ ingress:
   host: lake.10.0.0.60.nip.io
   minioConsoleHost: minio.10.0.0.60.nip.io
   minioApiHost: s3.10.0.0.60.nip.io
+  supersetHost: superset.10.0.0.60.nip.io
 
 lakeui:
   minioConsoleUrl: "http://minio.10.0.0.60.nip.io"
+  supersetUrl: "http://superset.10.0.0.60.nip.io"
   image:
     # repository and tag are set by the Jenkinsfile (--set) per build
     pullPolicy: Never   # image is imported directly into k3s containerd
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "256Mi"
 
 minio:
   persistence:
@@ -53,12 +59,6 @@ airflow:
     requests:
       cpu: "200m"
       memory: "1Gi"
-
-lakeui:
-  resources:
-    requests:
-      cpu: "50m"
-      memory: "256Mi"
 
 backend:
   resources:

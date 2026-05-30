@@ -50,6 +50,8 @@ spec:
                   key: GEMINI_API_KEY
             - name: MINIO_CONSOLE_URL
               value: {{ .Values.lakeui.minioConsoleUrl | default (printf "https://%s" .Values.ingress.minioConsoleHost) | quote }}
+            - name: SUPERSET_URL
+              value: {{ .Values.lakeui.supersetUrl | default (printf "http://%s" .Values.ingress.supersetHost) | quote }}
             - name: AUTH_SECRET_KEY
               valueFrom:
                 secretKeyRef:
