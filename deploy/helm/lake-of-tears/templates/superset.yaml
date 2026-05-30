@@ -30,8 +30,6 @@ spec:
                 secretKeyRef:
                   name: {{ include "lake-of-tears.fullname" . }}-credentials
                   key: SUPERSET_SECRET_KEY
-            - name: FLASK_APP
-              value: "wsgi:application"
           ports:
             - name: http
               containerPort: {{ .Values.superset.service.port }}
@@ -47,10 +45,6 @@ spec:
             - name: superset-config
               mountPath: /app/pythonpath/superset_config.py
               subPath: superset_config.py
-              readOnly: true
-            - name: superset-config
-              mountPath: /app/pythonpath/wsgi.py
-              subPath: wsgi.py
               readOnly: true
           resources:
             {{- toYaml .Values.superset.resources | nindent 12 }}
