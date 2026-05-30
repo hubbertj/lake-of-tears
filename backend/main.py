@@ -189,13 +189,21 @@ def _workspace_response(ws: Workspace, user: User) -> WorkspaceResponse:
 
 
 def _workspace_admin_response(ws: Workspace, db: Session) -> WorkspaceAdminResponse:
-    member_count = db.query(func.count(WorkspaceMember.id)).filter(
-        WorkspaceMember.workspace_id == ws.id
-    ).scalar() or 0
-    owned_catalog_count = db.query(func.count(Catalog.id)).filter(
-        Catalog.owner_workspace_id == ws.id,
-        Catalog.deleted_at.is_(None),
-    ).scalar() or 0
+    member_count = (
+        db.query(func.count(WorkspaceMember.id))
+        .filter(WorkspaceMember.workspace_id == ws.id)
+        .scalar()
+        or 0
+    )
+    owned_catalog_count = (
+        db.query(func.count(Catalog.id))
+        .filter(
+            Catalog.owner_workspace_id == ws.id,
+            Catalog.deleted_at.is_(None),
+        )
+        .scalar()
+        or 0
+    )
     return WorkspaceAdminResponse(
         id=ws.id,
         name=ws.name,
@@ -370,9 +378,7 @@ def create_workspace(
 ):
     # Block name if an inactive workspace with the same name exists (name reservation)
     conflict = (
-        db.query(Workspace)
-        .filter(func.lower(Workspace.name) == req.name.strip().lower())
-        .first()
+        db.query(Workspace).filter(func.lower(Workspace.name) == req.name.strip().lower()).first()
     )
     if conflict:
         raise HTTPException(409, "A workspace with that name already exists")
@@ -1655,7 +1661,9 @@ def update_admin_settings(
     current_user: User = Depends(require_superadmin),
 ):
     if req.catalog_soft_delete_days is not None:
-        _upsert_setting(db, "catalog_soft_delete_days", req.catalog_soft_delete_days, current_user.id)
+        _upsert_setting(
+            db, "catalog_soft_delete_days", req.catalog_soft_delete_days, current_user.id
+        )
     if req.workspace_inactive_grace_period_days is not None:
         _upsert_setting(
             db,
