@@ -113,7 +113,7 @@ spec:
               containerPort: {{ .Values.airflow.service.port }}
           livenessProbe:
             httpGet:
-              path: /health
+              path: /airflow/health
               port: http
             initialDelaySeconds: 180
             periodSeconds: 30
