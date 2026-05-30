@@ -26,7 +26,11 @@ spec:
         - name: airflow
           image: {{ .Values.airflow.image.repository }}:{{ .Values.airflow.image.tag }}
           imagePullPolicy: {{ .Values.airflow.image.pullPolicy }}
-          args: ["standalone"]
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              echo "AUTH_ROLE_PUBLIC = 'Viewer'" >> /opt/airflow/webserver_config.py
+              exec airflow standalone
           env:
             - name: CONNECTION_CHECK_MAX_COUNT
               value: "0"
