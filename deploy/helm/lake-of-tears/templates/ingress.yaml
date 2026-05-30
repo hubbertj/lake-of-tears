@@ -136,9 +136,8 @@ spec:
                   name: http
 
 ---
-# Apache Airflow — strip /airflow/ prefix before forwarding to the pod
-# Airflow is configured with BASE_URL=http://<host>/airflow/ so it generates
-# links with that prefix; nginx must strip it before the pod sees the request.
+# Apache Airflow — pass /airflow/ through unchanged; Airflow serves its own
+# routes under /airflow because BASE_URL includes that path prefix.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -146,8 +145,6 @@ metadata:
   labels:
     {{- $labels | nindent 4 }}
   annotations:
-    nginx.ingress.kubernetes.io/use-regex: "true"
-    nginx.ingress.kubernetes.io/rewrite-target: /$2
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
@@ -162,8 +159,8 @@ spec:
     - host: {{ .Values.ingress.host }}
       http:
         paths:
-          - path: /airflow(/|$)(.*)
-            pathType: ImplementationSpecific
+          - path: /airflow
+            pathType: Prefix
             backend:
               service:
                 name: {{ $fullName }}-airflow
