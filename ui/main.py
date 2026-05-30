@@ -891,15 +891,13 @@ async def settings_admin_workspace_mark_inactive(request: Request, workspace_id:
     if not user or user.get("role") != "superadmin":
         return RedirectResponse(url="/", status_code=302)
     token = request.cookies.get("lake_token")
-    try:
-        with httpx.Client(timeout=10) as client:
-            client.delete(
-                f"{BACKEND_URL}/api/admin/workspaces/{workspace_id}",
-                json={"mode": "soft"},
-                headers={"Authorization": f"Bearer {token}"},
-            )
-    except Exception:
-        pass
+    with httpx.Client(timeout=10) as client:
+        client.request(
+            "DELETE",
+            f"{BACKEND_URL}/api/admin/workspaces/{workspace_id}",
+            json={"mode": "soft"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
     return RedirectResponse(url="/settings/admin?saved=1", status_code=302)
 
 
@@ -923,15 +921,13 @@ async def settings_admin_workspace_delete(
     if not user or user.get("role") != "superadmin":
         return RedirectResponse(url="/", status_code=302)
     token = request.cookies.get("lake_token")
-    try:
-        with httpx.Client(timeout=10) as client:
-            client.delete(
-                f"{BACKEND_URL}/api/admin/workspaces/{workspace_id}",
-                json={"mode": "hard", "confirm_name": confirm_name},
-                headers={"Authorization": f"Bearer {token}"},
-            )
-    except Exception:
-        pass
+    with httpx.Client(timeout=10) as client:
+        client.request(
+            "DELETE",
+            f"{BACKEND_URL}/api/admin/workspaces/{workspace_id}",
+            json={"mode": "hard", "confirm_name": confirm_name},
+            headers={"Authorization": f"Bearer {token}"},
+        )
     return RedirectResponse(url="/settings/admin?saved=1", status_code=302)
 
 
