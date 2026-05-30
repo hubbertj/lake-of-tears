@@ -116,8 +116,6 @@ metadata:
     {{- $labels | nindent 4 }}
   annotations:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
-    nginx.ingress.kubernetes.io/configuration-snippet: |
-      proxy_hide_header X-Frame-Options;
     {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
