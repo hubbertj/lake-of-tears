@@ -35,7 +35,12 @@ spec:
             - name: CONNECTION_CHECK_MAX_COUNT
               value: "0"
             - name: AIRFLOW__CORE__EXECUTOR
-              value: SequentialExecutor
+              value: LocalExecutor
+            - name: AIRFLOW__DATABASE__SQL_ALCHEMY_CONN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: AIRFLOW_DB_CONN
             - name: AIRFLOW__CORE__LOAD_EXAMPLES
               value: "False"
             - name: AIRFLOW__CORE__DAGS_FOLDER
