@@ -19,6 +19,8 @@ spec:
       labels:
         app.kubernetes.io/name: {{ include "lake-of-tears.name" . }}
         app.kubernetes.io/component: superset
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/superset-config.yaml") . | sha256sum }}
     spec:
       containers:
         - name: superset
