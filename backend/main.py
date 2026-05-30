@@ -40,6 +40,7 @@ from schemas import (
     CreateSchemaRequest,
     CreateTableRequest,
     CreateWorkspaceRequest,
+    DeleteWorkspaceRequest,
     InboundAccessRequest,
     LoginRequest,
     PurgeCatalogRequest,
@@ -47,7 +48,6 @@ from schemas import (
     RequestAccessRequest,
     ReviewAccessRequest,
     SharedCatalogSettingsItem,
-    DeleteWorkspaceRequest,
     SystemSettingResponse,
     UpdateCatalogRequest,
     UpdateMemberRequest,
@@ -1574,7 +1574,7 @@ def _reactivate_workspace_catalogs(db: Session, ws: Workspace) -> None:
 
 
 @app.delete("/api/admin/workspaces/{workspace_id}", status_code=204)
-def delete_workspace(
+def admin_delete_workspace(
     workspace_id: str,
     req: DeleteWorkspaceRequest,
     db: Session = Depends(get_db),
