@@ -57,6 +57,11 @@ spec:
                   key: authSecretKey
             - name: BACKEND_URL
               value: "http://{{ include "lake-of-tears.fullname" . }}-backend:8000"
+            - name: JUPYTER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "lake-of-tears.fullname" . }}-credentials
+                  key: JUPYTER_TOKEN
             - name: AUTH_ENABLED
               value: {{ .Values.backend.enabled | quote }}
           livenessProbe:

@@ -32,6 +32,7 @@ MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET", "datalake")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 MINIO_CONSOLE_URL = os.getenv("MINIO_CONSOLE_URL", "http://localhost:9001")
+JUPYTER_TOKEN = os.getenv("JUPYTER_TOKEN", "")
 
 SOURCES = ["stripe", "shopify", "hubspot", "postgres", "weather"]
 SOURCE_LABELS = {
@@ -544,7 +545,8 @@ async def pipelines(request: Request):
 @app.get("/notebooks", response_class=HTMLResponse)
 async def notebooks(request: Request):
     ws = request.state.workspace
-    embed_url = f"/jupyter/lab/tree/{ws['slug']}/" if ws else "/jupyter/"
+    token_param = f"?token={JUPYTER_TOKEN}" if JUPYTER_TOKEN else ""
+    embed_url = f"/jupyter/lab/tree/{ws['slug']}/{token_param}" if ws else f"/jupyter/lab{token_param}"
     return templates.TemplateResponse(
         "embed.html",
         {
