@@ -40,6 +40,7 @@ from schemas import (
     CreateSchemaRequest,
     CreateTableRequest,
     CreateWorkspaceRequest,
+    DeleteWorkspaceRequest,
     InboundAccessRequest,
     LoginRequest,
     PurgeCatalogRequest,
@@ -57,6 +58,7 @@ from schemas import (
     UpdateUserRequest,
     UpdateWorkspaceRequest,
     UserResponse,
+    WorkspaceAdminResponse,
     WorkspaceCatalogSettingsResponse,
     WorkspaceMemberResponse,
     WorkspaceResponse,
@@ -65,6 +67,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 _DEFAULT_SOFT_DELETE_DAYS = 30
+_DEFAULT_WORKSPACE_INACTIVE_DAYS = 30
 
 app = FastAPI(title="Lake of Tears Auth API", docs_url=None, redoc_url=None)
 
@@ -179,7 +182,40 @@ def _workspace_response(ws: Workspace, user: User) -> WorkspaceResponse:
         slug=ws.slug,
         description=ws.description,
         created_at=ws.created_at,
+        is_system=ws.is_system,
+        status=ws.status,
         my_role=member.role if member else ("superadmin" if user.role == "superadmin" else None),
+    )
+
+
+def _workspace_admin_response(ws: Workspace, db: Session) -> WorkspaceAdminResponse:
+    member_count = (
+        db.query(func.count(WorkspaceMember.id))
+        .filter(WorkspaceMember.workspace_id == ws.id)
+        .scalar()
+        or 0
+    )
+    owned_catalog_count = (
+        db.query(func.count(Catalog.id))
+        .filter(
+            Catalog.owner_workspace_id == ws.id,
+            Catalog.deleted_at.is_(None),
+        )
+        .scalar()
+        or 0
+    )
+    return WorkspaceAdminResponse(
+        id=ws.id,
+        name=ws.name,
+        slug=ws.slug,
+        description=ws.description,
+        is_system=ws.is_system,
+        status=ws.status,
+        deleted_at=ws.deleted_at,
+        scheduled_purge_at=ws.scheduled_purge_at,
+        member_count=member_count,
+        owned_catalog_count=owned_catalog_count,
+        created_at=ws.created_at,
     )
 
 
@@ -317,12 +353,17 @@ def update_user(
 @app.get("/api/workspaces", response_model=list[WorkspaceResponse])
 def list_workspaces(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role == "superadmin":
-        workspaces = db.query(Workspace).order_by(Workspace.created_at).all()
+        workspaces = (
+            db.query(Workspace)
+            .filter(Workspace.status == "active")
+            .order_by(Workspace.created_at)
+            .all()
+        )
     else:
         workspaces = (
             db.query(Workspace)
             .join(WorkspaceMember, WorkspaceMember.workspace_id == Workspace.id)
-            .filter(WorkspaceMember.user_id == current_user.id)
+            .filter(WorkspaceMember.user_id == current_user.id, Workspace.status == "active")
             .order_by(Workspace.created_at)
             .all()
         )
@@ -335,6 +376,12 @@ def create_workspace(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_superadmin),
 ):
+    # Block name if an inactive workspace with the same name exists (name reservation)
+    conflict = (
+        db.query(Workspace).filter(func.lower(Workspace.name) == req.name.strip().lower()).first()
+    )
+    if conflict:
+        raise HTTPException(409, "A workspace with that name already exists")
     slug = _unique_slug(db, _slugify(req.name))
     ws = Workspace(
         name=req.name.strip(),
@@ -446,6 +493,8 @@ def add_member(
     ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     if not ws:
         raise HTTPException(404, "Workspace not found")
+    if ws.status == "inactive":
+        raise HTTPException(409, "Cannot add members to an inactive workspace")
     if current_user.role != "superadmin":
         member_check = next(
             (m for m in ws.members if m.user_id == current_user.id and m.role == "admin"), None
@@ -608,10 +657,32 @@ def _get_soft_delete_days(db: Session) -> int:
     return _DEFAULT_SOFT_DELETE_DAYS
 
 
+def _get_workspace_inactive_days(db: Session) -> int:
+    setting = (
+        db.query(SystemSetting)
+        .filter(SystemSetting.key == "workspace_inactive_grace_period_days")
+        .first()
+    )
+    if setting is not None and setting.value is not None:
+        return setting.value
+    return _DEFAULT_WORKSPACE_INACTIVE_DAYS
+
+
 def _ensure_system_settings(db: Session) -> None:
     if not db.query(SystemSetting).filter(SystemSetting.key == "catalog_soft_delete_days").first():
         db.add(SystemSetting(key="catalog_soft_delete_days", value=_DEFAULT_SOFT_DELETE_DAYS))
-        db.commit()
+    if (
+        not db.query(SystemSetting)
+        .filter(SystemSetting.key == "workspace_inactive_grace_period_days")
+        .first()
+    ):
+        db.add(
+            SystemSetting(
+                key="workspace_inactive_grace_period_days",
+                value=_DEFAULT_WORKSPACE_INACTIVE_DAYS,
+            )
+        )
+    db.commit()
 
 
 def _catalog_response(catalog: Catalog, user: User, db: Session) -> CatalogResponse:
@@ -728,6 +799,60 @@ def _resolve_workspace(workspace_id: str | None, user: User, db: Session) -> Wor
         if not member:
             raise HTTPException(403, "Workspace admin access required")
     return ws
+
+
+@app.get("/api/catalogs/directory", response_model=list[CatalogDirectoryItem])
+def catalog_directory(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    membership = next(
+        (m for m in current_user.workspace_memberships if str(m.workspace_id) == workspace_id),
+        None,
+    )
+    if not membership and current_user.role != "superadmin":
+        raise HTTPException(403, "Not a member of this workspace")
+    if membership and membership.role != "admin" and current_user.role != "superadmin":
+        raise HTTPException(403, "Workspace admin access required")
+
+    catalogs = (
+        db.query(Catalog)
+        .filter(
+            Catalog.deleted_at.is_(None),
+            Catalog.owner_workspace_id != workspace_id,
+        )
+        .order_by(Catalog.name)
+        .all()
+    )
+
+    grants = db.query(CatalogAccess).filter(CatalogAccess.workspace_id == workspace_id).all()
+    grant_by_catalog = {str(g.catalog_id): g for g in grants}
+
+    result = []
+    for cat in catalogs:
+        owner_ws = cat.owner_workspace
+        grant = grant_by_catalog.get(str(cat.id))
+        if grant and grant.status == "approved":
+            access_status = "approved"
+        elif grant and grant.status == "pending":
+            access_status = "pending"
+        else:
+            access_status = "none"
+        result.append(
+            CatalogDirectoryItem(
+                id=cat.id,
+                name=cat.name,
+                slug=cat.slug,
+                description=cat.description,
+                owner_workspace_id=cat.owner_workspace_id,
+                owner_workspace_name=owner_ws.name if owner_ws else None,
+                schema_count=len(cat.schemas),
+                access_status=access_status,
+                access_id=grant.id if grant else None,
+            )
+        )
+    return result
 
 
 @app.get("/api/catalogs/{catalog_id}", response_model=CatalogResponse)
@@ -1234,60 +1359,6 @@ def revoke_access(
     return {"ok": True}
 
 
-@app.get("/api/catalogs/directory", response_model=list[CatalogDirectoryItem])
-def catalog_directory(
-    workspace_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    membership = next(
-        (m for m in current_user.workspace_memberships if str(m.workspace_id) == workspace_id),
-        None,
-    )
-    if not membership and current_user.role != "superadmin":
-        raise HTTPException(403, "Not a member of this workspace")
-    if membership and membership.role != "admin" and current_user.role != "superadmin":
-        raise HTTPException(403, "Workspace admin access required")
-
-    catalogs = (
-        db.query(Catalog)
-        .filter(
-            Catalog.deleted_at.is_(None),
-            Catalog.owner_workspace_id != workspace_id,
-        )
-        .order_by(Catalog.name)
-        .all()
-    )
-
-    grants = db.query(CatalogAccess).filter(CatalogAccess.workspace_id == workspace_id).all()
-    grant_by_catalog = {str(g.catalog_id): g for g in grants}
-
-    result = []
-    for cat in catalogs:
-        owner_ws = cat.owner_workspace
-        grant = grant_by_catalog.get(str(cat.id))
-        if grant and grant.status == "approved":
-            access_status = "approved"
-        elif grant and grant.status == "pending":
-            access_status = "pending"
-        else:
-            access_status = "none"
-        result.append(
-            CatalogDirectoryItem(
-                id=cat.id,
-                name=cat.name,
-                slug=cat.slug,
-                description=cat.description,
-                owner_workspace_id=cat.owner_workspace_id,
-                owner_workspace_name=owner_ws.name if owner_ws else None,
-                schema_count=len(cat.schemas),
-                access_status=access_status,
-                access_id=grant.id if grant else None,
-            )
-        )
-    return result
-
-
 @app.get(
     "/api/workspaces/{workspace_id}/access/requests/inbound",
     response_model=list[InboundAccessRequest],
@@ -1469,6 +1540,96 @@ def remove_shared_catalog(
     return {"ok": True}
 
 
+# ── Admin: Workspaces ─────────────────────────────────────────────────────────
+
+
+@app.get("/api/admin/workspaces", response_model=list[WorkspaceAdminResponse])
+def list_admin_workspaces(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superadmin),
+):
+    workspaces = db.query(Workspace).order_by(Workspace.created_at).all()
+    return [_workspace_admin_response(ws, db) for ws in workspaces]
+
+
+def _soft_delete_workspace_catalogs(db: Session, ws: Workspace, purge_at: datetime) -> None:
+    catalogs = (
+        db.query(Catalog)
+        .filter(Catalog.owner_workspace_id == ws.id, Catalog.deleted_at.is_(None))
+        .all()
+    )
+    now = datetime.now(UTC)
+    for cat in catalogs:
+        cat.deleted_at = now
+        cat.scheduled_purge_at = purge_at
+        for grant in cat.access_grants:
+            grant.suspended = True
+
+
+def _reactivate_workspace_catalogs(db: Session, ws: Workspace) -> None:
+    catalogs = (
+        db.query(Catalog)
+        .filter(Catalog.owner_workspace_id == ws.id, Catalog.deleted_at.isnot(None))
+        .all()
+    )
+    for cat in catalogs:
+        cat.deleted_at = None
+        cat.scheduled_purge_at = None
+        for grant in cat.access_grants:
+            grant.suspended = False
+
+
+@app.delete("/api/admin/workspaces/{workspace_id}", status_code=204)
+def admin_delete_workspace(
+    workspace_id: str,
+    req: DeleteWorkspaceRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_superadmin),
+):
+    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+    if ws.is_system:
+        raise HTTPException(409, "The system workspace cannot be deleted")
+
+    if req.mode == "hard":
+        if not req.confirm_name or req.confirm_name != ws.name:
+            raise HTTPException(400, "Workspace name confirmation does not match")
+        db.delete(ws)
+        db.commit()
+        return
+
+    # Soft delete
+    grace_days = _get_workspace_inactive_days(db)
+    now = datetime.now(UTC)
+    purge_at = now + timedelta(days=grace_days)
+    ws.status = "inactive"
+    ws.deleted_at = now
+    ws.scheduled_purge_at = purge_at
+    _soft_delete_workspace_catalogs(db, ws, purge_at)
+    db.commit()
+
+
+@app.post("/api/admin/workspaces/{workspace_id}/restore", response_model=WorkspaceAdminResponse)
+def restore_workspace(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_superadmin),
+):
+    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not ws:
+        raise HTTPException(404, "Workspace not found")
+    if ws.status != "inactive":
+        raise HTTPException(409, "Workspace is not inactive")
+    ws.status = "active"
+    ws.deleted_at = None
+    ws.scheduled_purge_at = None
+    _reactivate_workspace_catalogs(db, ws)
+    db.commit()
+    db.refresh(ws)
+    return _workspace_admin_response(ws, db)
+
+
 # ── Admin: System Settings ────────────────────────────────────────────────────
 
 
@@ -1477,7 +1638,20 @@ def get_admin_settings(
     db: Session = Depends(get_db),
     _: User = Depends(require_superadmin),
 ):
-    return SystemSettingResponse(catalog_soft_delete_days=_get_soft_delete_days(db))
+    return SystemSettingResponse(
+        catalog_soft_delete_days=_get_soft_delete_days(db),
+        workspace_inactive_grace_period_days=_get_workspace_inactive_days(db),
+    )
+
+
+def _upsert_setting(db: Session, key: str, value: int, user_id) -> None:
+    setting = db.query(SystemSetting).filter(SystemSetting.key == key).first()
+    if setting:
+        setting.value = value
+        setting.updated_at = datetime.now(UTC)
+        setting.updated_by = user_id
+    else:
+        db.add(SystemSetting(key=key, value=value, updated_by=user_id))
 
 
 @app.patch("/api/admin/settings", response_model=SystemSettingResponse)
@@ -1486,20 +1660,19 @@ def update_admin_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_superadmin),
 ):
-    setting = (
-        db.query(SystemSetting).filter(SystemSetting.key == "catalog_soft_delete_days").first()
-    )
-    if setting:
-        setting.value = req.catalog_soft_delete_days
-        setting.updated_at = datetime.now(UTC)
-        setting.updated_by = current_user.id
-    else:
-        db.add(
-            SystemSetting(
-                key="catalog_soft_delete_days",
-                value=req.catalog_soft_delete_days,
-                updated_by=current_user.id,
-            )
+    if req.catalog_soft_delete_days is not None:
+        _upsert_setting(
+            db, "catalog_soft_delete_days", req.catalog_soft_delete_days, current_user.id
+        )
+    if req.workspace_inactive_grace_period_days is not None:
+        _upsert_setting(
+            db,
+            "workspace_inactive_grace_period_days",
+            req.workspace_inactive_grace_period_days,
+            current_user.id,
         )
     db.commit()
-    return SystemSettingResponse(catalog_soft_delete_days=req.catalog_soft_delete_days)
+    return SystemSettingResponse(
+        catalog_soft_delete_days=_get_soft_delete_days(db),
+        workspace_inactive_grace_period_days=_get_workspace_inactive_days(db),
+    )

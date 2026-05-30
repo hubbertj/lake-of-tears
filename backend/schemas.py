@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, field_validator
 
@@ -70,10 +71,40 @@ class WorkspaceResponse(BaseModel):
     slug: str
     description: str | None
     created_at: datetime
+    is_system: bool = False
+    status: str = "active"
     # caller's role within this workspace (populated on the fly)
     my_role: str | None = None
 
     model_config = {"from_attributes": True}
+
+
+class WorkspaceAdminResponse(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    description: str | None
+    is_system: bool
+    status: Literal["active", "inactive"]
+    deleted_at: datetime | None
+    scheduled_purge_at: datetime | None
+    member_count: int
+    owned_catalog_count: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DeleteWorkspaceRequest(BaseModel):
+    mode: str  # 'hard' | 'soft'
+    confirm_name: str | None = None
+
+    @field_validator("mode")
+    @classmethod
+    def valid_mode(cls, v: str) -> str:
+        if v not in ("hard", "soft"):
+            raise ValueError("mode must be 'hard' or 'soft'")
+        return v
 
 
 class AddMemberRequest(BaseModel):
@@ -296,14 +327,23 @@ class InboundAccessRequest(BaseModel):
 
 class SystemSettingResponse(BaseModel):
     catalog_soft_delete_days: int
+    workspace_inactive_grace_period_days: int
 
 
 class UpdateSystemSettingsRequest(BaseModel):
-    catalog_soft_delete_days: int
+    catalog_soft_delete_days: int | None = None
+    workspace_inactive_grace_period_days: int | None = None
 
     @field_validator("catalog_soft_delete_days")
     @classmethod
-    def valid_days(cls, v: int) -> int:
-        if v < 0 or v > 365:
+    def valid_catalog_days(cls, v: int | None) -> int | None:
+        if v is not None and (v < 0 or v > 365):
+            raise ValueError("Days must be between 0 and 365")
+        return v
+
+    @field_validator("workspace_inactive_grace_period_days")
+    @classmethod
+    def valid_workspace_days(cls, v: int | None) -> int | None:
+        if v is not None and (v < 0 or v > 365):
             raise ValueError("Days must be between 0 and 365")
         return v

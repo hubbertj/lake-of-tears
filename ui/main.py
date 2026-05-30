@@ -793,8 +793,11 @@ async def settings_admin_get(request: Request):
         return RedirectResponse(url="/", status_code=302)
     token = request.cookies.get("lake_token")
     users_list = _backend_get("/api/users", token) or []
-    all_ws = _backend_get("/api/workspaces", token) or []
-    admin_settings = _backend_get("/api/admin/settings", token) or {"catalog_soft_delete_days": 30}
+    all_ws = _backend_get("/api/admin/workspaces", token) or []
+    admin_settings = _backend_get("/api/admin/settings", token) or {
+        "catalog_soft_delete_days": 30,
+        "workspace_inactive_grace_period_days": 30,
+    }
     return templates.TemplateResponse(
         "settings/admin.html",
         {
@@ -862,6 +865,73 @@ async def settings_admin_catalog_settings(
     _backend_patch(
         "/api/admin/settings", token, {"catalog_soft_delete_days": catalog_soft_delete_days}
     )
+    return RedirectResponse(url="/settings/admin?saved=1", status_code=302)
+
+
+@app.post("/settings/admin/workspace-settings")
+async def settings_admin_workspace_settings(
+    request: Request,
+    workspace_inactive_grace_period_days: int = Form(...),
+):
+    user = request.state.user
+    if not user or user.get("role") != "superadmin":
+        return RedirectResponse(url="/", status_code=302)
+    token = request.cookies.get("lake_token")
+    _backend_patch(
+        "/api/admin/settings",
+        token,
+        {"workspace_inactive_grace_period_days": workspace_inactive_grace_period_days},
+    )
+    return RedirectResponse(url="/settings/admin?saved=1", status_code=302)
+
+
+@app.post("/settings/admin/workspaces/{workspace_id}/mark-inactive")
+async def settings_admin_workspace_mark_inactive(request: Request, workspace_id: str):
+    user = request.state.user
+    if not user or user.get("role") != "superadmin":
+        return RedirectResponse(url="/", status_code=302)
+    token = request.cookies.get("lake_token")
+    try:
+        with httpx.Client(timeout=10) as client:
+            client.delete(
+                f"{BACKEND_URL}/api/admin/workspaces/{workspace_id}",
+                json={"mode": "soft"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+    except Exception:
+        pass
+    return RedirectResponse(url="/settings/admin?saved=1", status_code=302)
+
+
+@app.post("/settings/admin/workspaces/{workspace_id}/restore")
+async def settings_admin_workspace_restore(request: Request, workspace_id: str):
+    user = request.state.user
+    if not user or user.get("role") != "superadmin":
+        return RedirectResponse(url="/", status_code=302)
+    token = request.cookies.get("lake_token")
+    _backend_post(f"/api/admin/workspaces/{workspace_id}/restore", token, {})
+    return RedirectResponse(url="/settings/admin?saved=1", status_code=302)
+
+
+@app.post("/settings/admin/workspaces/{workspace_id}/delete")
+async def settings_admin_workspace_delete(
+    request: Request,
+    workspace_id: str,
+    confirm_name: str = Form(...),
+):
+    user = request.state.user
+    if not user or user.get("role") != "superadmin":
+        return RedirectResponse(url="/", status_code=302)
+    token = request.cookies.get("lake_token")
+    try:
+        with httpx.Client(timeout=10) as client:
+            client.delete(
+                f"{BACKEND_URL}/api/admin/workspaces/{workspace_id}",
+                json={"mode": "hard", "confirm_name": confirm_name},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+    except Exception:
+        pass
     return RedirectResponse(url="/settings/admin?saved=1", status_code=302)
 
 
