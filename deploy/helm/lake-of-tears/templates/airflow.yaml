@@ -26,11 +26,7 @@ spec:
         - name: airflow
           image: {{ .Values.airflow.image.repository }}:{{ .Values.airflow.image.tag }}
           imagePullPolicy: {{ .Values.airflow.image.pullPolicy }}
-          command: ["/bin/bash", "-c"]
-          args:
-            - |
-              echo "AUTH_ROLE_PUBLIC = 'Viewer'" >> /opt/airflow/webserver_config.py
-              exec airflow standalone
+          args: ["standalone"]
           env:
             - name: CONNECTION_CHECK_MAX_COUNT
               value: "0"
@@ -49,6 +45,8 @@ spec:
             # The nginx Ingress strips this prefix before forwarding to the pod.
             - name: AIRFLOW__WEBSERVER__BASE_URL
               value: "{{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}/airflow"
+            - name: AIRFLOW__WEBSERVER__AUTH_ROLE_PUBLIC
+              value: "Viewer"
             - name: AIRFLOW__WEBSERVER__ENABLE_PROXY_FIX
               value: "True"
             - name: AIRFLOW__WEBSERVER__PROXY_FIX_X_FOR
