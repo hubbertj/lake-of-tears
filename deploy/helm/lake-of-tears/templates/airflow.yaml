@@ -45,8 +45,6 @@ spec:
             # The nginx Ingress strips this prefix before forwarding to the pod.
             - name: AIRFLOW__WEBSERVER__BASE_URL
               value: "{{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}/airflow"
-            - name: AIRFLOW__WEBSERVER__AUTH_ROLE_PUBLIC
-              value: "Viewer"
             - name: AIRFLOW__WEBSERVER__ENABLE_PROXY_FIX
               value: "True"
             - name: AIRFLOW__WEBSERVER__PROXY_FIX_X_FOR
