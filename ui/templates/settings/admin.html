@@ -64,12 +64,53 @@
     <div class="space-y-1 mb-6">
       {% for ws in workspaces %}
       <div class="flex items-center gap-3 py-2 border-b border-white/[0.04] last:border-0">
-        <span class="w-7 h-7 rounded bg-blue-600/50 shrink-0 flex items-center justify-center text-[11px] font-bold text-blue-300">{{ ws.name[0] | upper }}</span>
+        <span class="w-7 h-7 rounded {% if ws.status == 'inactive' %}bg-amber-900/40{% else %}bg-blue-600/50{% endif %} shrink-0 flex items-center justify-center text-[11px] font-bold {% if ws.status == 'inactive' %}text-amber-500{% else %}text-blue-300{% endif %}">{{ ws.name[0] | upper }}</span>
         <div class="flex-1 min-w-0">
-          <div class="text-sm text-gray-200 truncate">{{ ws.name }}</div>
-          <div class="text-[11px] text-gray-500">slug: {{ ws.slug }}{% if ws.description %} &middot; {{ ws.description }}{% endif %}</div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-sm {% if ws.status == 'inactive' %}text-gray-500{% else %}text-gray-200{% endif %} truncate">{{ ws.name }}</span>
+            {% if ws.is_system %}
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/40 border border-blue-700/40 text-blue-400 shrink-0">System</span>
+            {% endif %}
+            {% if ws.status == 'inactive' %}
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-900/40 border border-amber-700/40 text-amber-500 shrink-0">Inactive</span>
+            {% endif %}
+          </div>
+          <div class="text-[11px] text-gray-500">
+            slug: {{ ws.slug }}
+            &middot; {{ ws.member_count }} member{{ 's' if ws.member_count != 1 else '' }}
+            &middot; {{ ws.owned_catalog_count }} catalog{{ 's' if ws.owned_catalog_count != 1 else '' }}
+            {% if ws.status == 'inactive' and ws.scheduled_purge_at %}
+            &middot; <span class="text-amber-600">Permanent deletion: {{ ws.scheduled_purge_at[:10] }}</span>
+            {% endif %}
+          </div>
         </div>
-        <span class="text-[11px] text-gray-600 shrink-0 capitalize">{{ ws.my_role or '—' }}</span>
+        <!-- Actions -->
+        {% if ws.is_system %}
+        <span class="text-[11px] text-gray-600 shrink-0 italic">protected</span>
+        {% elif ws.status == 'inactive' %}
+        <div class="flex items-center gap-2 shrink-0">
+          <form action="/settings/admin/workspaces/{{ ws.id }}/restore" method="post">
+            <button type="submit" class="text-xs px-2.5 py-1 rounded border border-emerald-700/50 text-emerald-500 hover:text-emerald-300 transition-colors">Restore</button>
+          </form>
+          <button onclick="openDeleteModal('{{ ws.id }}', '{{ ws.name | replace("'", "\\'") }}')"
+            class="text-xs px-2.5 py-1 rounded border border-red-800/50 text-red-500 hover:text-red-300 transition-colors">
+            Delete now
+          </button>
+        </div>
+        {% else %}
+        <div class="flex items-center gap-2 shrink-0">
+          {% if admin_settings.workspace_inactive_grace_period_days > 0 %}
+          <form action="/settings/admin/workspaces/{{ ws.id }}/mark-inactive" method="post"
+            onsubmit="return confirm('Mark workspace \'{{ ws.name | replace("'", "\\'") }}\' as inactive?\n\nIt and its catalogs will be permanently deleted in {{ admin_settings.workspace_inactive_grace_period_days }} day{{ 's' if admin_settings.workspace_inactive_grace_period_days != 1 else '' }}. You can restore it before then.')">
+            <button type="submit" class="text-xs px-2.5 py-1 rounded border border-gray-700 text-gray-500 hover:text-amber-400 hover:border-amber-600/50 transition-colors">Mark inactive</button>
+          </form>
+          {% endif %}
+          <button onclick="openDeleteModal('{{ ws.id }}', '{{ ws.name | replace("'", "\\'") }}')"
+            class="text-xs px-2.5 py-1 rounded border border-red-800/50 text-red-500 hover:text-red-300 transition-colors">
+            Delete now
+          </button>
+        </div>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
@@ -90,28 +131,116 @@
     </form>
   </div>
 
-  <!-- Catalog Settings -->
-  <div class="card p-6">
-    <h2 class="text-sm font-semibold text-gray-300 mb-1">Catalog Settings</h2>
-    <p class="text-xs text-gray-500 mb-5">Configure how catalog deletions behave across all workspaces.</p>
-    <form action="/settings/admin/catalog-settings" method="post" class="space-y-4">
-      <div>
-        <label class="block text-xs text-gray-400 font-medium mb-1">Soft Delete Grace Period (days)</label>
-        <p class="text-[11px] text-gray-600 mb-2">When a workspace admin deletes a catalog it enters a grace period before permanent deletion. Set to <code class="text-gray-500">0</code> to disable soft delete — deletions will be permanent immediately.</p>
-        <div class="flex items-center gap-3">
-          <input type="number" name="catalog_soft_delete_days" min="0" max="365" required
-                 value="{{ admin_settings.catalog_soft_delete_days | default(30) }}"
-                 class="w-24 input-dark text-sm" style="background-color: var(--c-input-bg); border-color: var(--c-input-border);" />
-          <span class="text-xs text-gray-500">days (0–365)</span>
+  <!-- Settings -->
+  <div class="card p-6 space-y-6">
+    <div>
+      <h2 class="text-sm font-semibold text-gray-300 mb-1">Catalog Settings</h2>
+      <p class="text-xs text-gray-500 mb-5">Configure how catalog deletions behave across all workspaces.</p>
+      <form action="/settings/admin/catalog-settings" method="post" class="space-y-4">
+        <div>
+          <label class="block text-xs text-gray-400 font-medium mb-1">Soft Delete Grace Period (days)</label>
+          <p class="text-[11px] text-gray-600 mb-2">When a workspace admin deletes a catalog it enters a grace period before permanent deletion. Set to <code class="text-gray-500">0</code> to disable soft delete — deletions will be permanent immediately.</p>
+          <div class="flex items-center gap-3">
+            <input type="number" name="catalog_soft_delete_days" min="0" max="365" required
+                   value="{{ admin_settings.catalog_soft_delete_days | default(30) }}"
+                   class="w-24 input-dark text-sm" style="background-color: var(--c-input-bg); border-color: var(--c-input-border);" />
+            <span class="text-xs text-gray-500">days (0–365)</span>
+          </div>
+          {% if admin_settings.catalog_soft_delete_days == 0 %}
+          <p class="text-xs text-yellow-600 mt-2">⚠ Soft delete is disabled — catalog deletions are permanent immediately.</p>
+          {% endif %}
         </div>
-        {% if admin_settings.catalog_soft_delete_days == 0 %}
-        <p class="text-xs text-yellow-600 mt-2">⚠ Soft delete is disabled — catalog deletions are permanent immediately.</p>
-        {% endif %}
+        <div class="flex justify-end">
+          <button type="submit" class="btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="border-t border-white/[0.06] pt-6">
+      <h2 class="text-sm font-semibold text-gray-300 mb-1">Workspace Lifecycle</h2>
+      <p class="text-xs text-gray-500 mb-5">Configure how workspace deletions behave.</p>
+      <form action="/settings/admin/workspace-settings" method="post" class="space-y-4">
+        <div>
+          <label class="block text-xs text-gray-400 font-medium mb-1">Inactive Grace Period (days)</label>
+          <p class="text-[11px] text-gray-600 mb-2">How long an inactive workspace is kept before permanent deletion. Set to <code class="text-gray-500">0</code> to require immediate deletion — the Mark inactive option will be hidden.</p>
+          <div class="flex items-center gap-3">
+            <input type="number" name="workspace_inactive_grace_period_days" min="0" max="365" required
+                   value="{{ admin_settings.workspace_inactive_grace_period_days | default(30) }}"
+                   class="w-24 input-dark text-sm" style="background-color: var(--c-input-bg); border-color: var(--c-input-border);" />
+            <span class="text-xs text-gray-500">days (0–365)</span>
+          </div>
+          {% if admin_settings.workspace_inactive_grace_period_days == 0 %}
+          <p class="text-xs text-yellow-600 mt-2">⚠ Grace period is disabled — workspace deletions are permanent immediately.</p>
+          {% endif %}
+        </div>
+        <div class="flex justify-end">
+          <button type="submit" class="btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Hard-delete confirmation modal -->
+<div id="ws-delete-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+  <div class="bg-[#1a1a1a] border border-white/10 rounded-xl shadow-2xl w-full max-w-md p-6">
+    <h2 class="text-base font-semibold text-gray-200 mb-1">Delete workspace "<span id="ws-delete-name"></span>"?</h2>
+    <div class="flex items-start gap-2 mt-3 mb-4 p-3 rounded-md bg-red-900/20 border border-red-800/40">
+      <svg class="w-4 h-4 text-red-400 mt-0.5 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/></svg>
+      <div class="text-xs text-red-400">
+        <span class="font-semibold">This action is permanent and cannot be undone.</span>
+        All catalogs owned by this workspace will be deleted.
       </div>
-      <div class="flex justify-end">
-        <button type="submit" class="btn-primary">Save</button>
+    </div>
+    <p class="text-xs text-gray-400 mb-2">Type the workspace name to confirm:</p>
+    <input id="ws-delete-confirm-input" type="text" autocomplete="off" placeholder=""
+      oninput="checkDeleteConfirm()"
+      class="w-full input-dark text-sm mb-4" style="background-color: var(--c-input-bg); border-color: var(--c-input-border);" />
+    <form id="ws-delete-form" method="post" action="">
+      <input type="hidden" name="confirm_name" id="ws-delete-hidden-name" />
+      <div class="flex justify-end gap-3">
+        <button type="button" onclick="closeDeleteModal()" class="text-sm px-4 py-2 rounded-md border border-gray-700 text-gray-400 hover:text-gray-200 transition-colors">Cancel</button>
+        <button type="submit" id="ws-delete-submit" disabled
+          class="text-sm px-4 py-2 rounded-md bg-red-700/50 border border-red-600/50 text-red-300 cursor-not-allowed transition-colors">
+          Delete permanently
+        </button>
       </div>
     </form>
   </div>
 </div>
+
+<script>
+let _wsDeleteExpected = '';
+
+function openDeleteModal(wsId, wsName) {
+  _wsDeleteExpected = wsName;
+  document.getElementById('ws-delete-name').textContent = wsName;
+  document.getElementById('ws-delete-confirm-input').value = '';
+  document.getElementById('ws-delete-hidden-name').value = '';
+  document.getElementById('ws-delete-submit').disabled = true;
+  document.getElementById('ws-delete-submit').className = 'text-sm px-4 py-2 rounded-md bg-red-700/20 border border-red-800/40 text-red-600 cursor-not-allowed transition-colors';
+  document.getElementById('ws-delete-form').action = '/settings/admin/workspaces/' + wsId + '/delete';
+  document.getElementById('ws-delete-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('ws-delete-confirm-input').focus(), 50);
+}
+
+function closeDeleteModal() {
+  document.getElementById('ws-delete-modal').classList.add('hidden');
+}
+
+function checkDeleteConfirm() {
+  const val = document.getElementById('ws-delete-confirm-input').value;
+  document.getElementById('ws-delete-hidden-name').value = val;
+  const matches = val === _wsDeleteExpected;
+  const btn = document.getElementById('ws-delete-submit');
+  btn.disabled = !matches;
+  btn.className = matches
+    ? 'text-sm px-4 py-2 rounded-md bg-red-700 border border-red-600 text-white hover:bg-red-600 transition-colors cursor-pointer'
+    : 'text-sm px-4 py-2 rounded-md bg-red-700/20 border border-red-800/40 text-red-600 cursor-not-allowed transition-colors';
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeDeleteModal();
+});
+</script>
 {% endblock %}
