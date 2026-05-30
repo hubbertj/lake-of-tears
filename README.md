@@ -201,12 +201,14 @@ global:
 
 ingress:
   host: lake.example.com
+  supersetHost: superset.example.com
   minioConsoleHost: minio.example.com
   minioApiHost: minio-api.example.com
   tls:
     - secretName: lake-of-tears-tls
       hosts:
         - lake.example.com
+        - superset.example.com
         - minio.example.com
         - minio-api.example.com
 
@@ -248,10 +250,12 @@ All services are routed through the nginx Ingress controller:
 | `https://lake.example.com/` | Lake UI shell |
 | `https://lake.example.com/api/` | Auth backend |
 | `https://lake.example.com/jupyter/` | JupyterLab |
-| `https://lake.example.com/superset/` | Apache Superset |
+| `https://superset.example.com/` | Apache Superset |
 | `https://lake.example.com/airflow/` | Apache Airflow |
 | `https://minio.example.com/` | MinIO Console |
 | `https://minio-api.example.com/` | MinIO S3 API |
+
+> **Note:** Superset runs on its own subdomain in the Helm deployment because its static assets are always served at `/static/…` with no prefix, which conflicts with the root Lake UI ingress. In Docker Compose, Superset is still accessible at `http://localhost/superset/` and directly at `http://localhost:8088`.
 
 ### Required values reference
 
@@ -270,6 +274,7 @@ Every value marked **required** must be present in your secrets file or the Helm
 | `backend.auth.secretKey` | yes | JWT signing secret (generate with `token_hex(32)`) |
 | `gemini.apiKey` | yes | Google AI Studio API key (for embeddings and RAG) |
 | `ingress.host` | yes | Primary hostname for the Lake UI and embedded services |
+| `ingress.supersetHost` | yes | Dedicated subdomain for Apache Superset (e.g. `superset.example.com`) |
 | `ingress.minioConsoleHost` | yes | Hostname for the MinIO Console |
 
 See `deploy/helm/lake-of-tears/values.yaml` for the full list of optional values (resource limits, image tags, SSO provider IDs, data source credentials, etc.).
@@ -706,7 +711,9 @@ Given a natural-language question, embeds the query with `gemini-embedding-001`,
 
 ## Architecture Notes
 
-- **Single entry point.** nginx sits in front of everything at port 80. JupyterLab (`/jupyter/`), Superset (`/superset/`), and Airflow (`/airflow/`) are configured to serve at their respective subpaths so they work correctly inside the Lake UI shell iframes. MinIO Console is exposed separately at port 9001 (Docker Compose) or its own Ingress host (Kubernetes) due to SPA routing limitations.
+- **Single entry point.** nginx sits in front of everything at port 80. JupyterLab (`/jupyter/`) and Airflow (`/airflow/`) are proxied at path prefixes. Superset runs on its own subdomain (`superset.*`) in the Helm deployment — its static assets are always served at `/static/…` with no prefix, which conflicts with the root Lake UI ingress. In Docker Compose, Superset is still proxied at `/superset/` via `APPLICATION_PREFIX_PATH`. MinIO Console is exposed separately at port 9001 (Docker Compose) or its own Ingress host (Kubernetes) due to SPA routing limitations.
+
+- **Visualizations page (Superset) requires no login.** `PUBLIC_ROLE_LIKE = "Gamma"` is set in `deploy/superset/superset_config.py`, granting anonymous users full read access to dashboards and charts. This is appropriate for a trusted internal network. Remove that setting if you need login enforcement.
 
 - **All data is Parquet.** Files are partitioned by `year=/month=/day=` and written with `pyarrow`. DuckDB's Hive partitioning support makes date-range queries highly efficient.
 

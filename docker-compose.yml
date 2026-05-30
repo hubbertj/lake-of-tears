@@ -201,7 +201,7 @@ services:
       - datalake
 
   superset:
-    image: apache/superset:latest
+    image: apache/superset:4.1.4
     container_name: superset
     restart: unless-stopped
     ports:
@@ -221,7 +221,7 @@ services:
       - datalake
 
   superset-init:
-    image: apache/superset:latest
+    image: apache/superset:4.1.4
     container_name: superset-init
     restart: "no"
     depends_on:

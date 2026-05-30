@@ -11,3 +11,5 @@ HTTP_HEADERS = {}
 TALISMAN_CONFIG = {
     "frame_options": "ALLOWALL",
 }
+# Grant anonymous users Gamma-level read access so the iframe loads without login.
+PUBLIC_ROLE_LIKE = "Gamma"
