@@ -520,7 +520,7 @@ async def dashboards(request: Request):
             "request": request,
             "page": "dashboards",
             "embed_url": "/superset/",
-            "embed_title": "Dashboards",
+            "embed_title": "Visualizations",
             "embed_service": "Apache Superset",
         },
     )
