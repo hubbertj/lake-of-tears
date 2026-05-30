@@ -36,7 +36,7 @@ minio:
 
   # Buckets to create on first startup (via minio-init job)
   buckets:
-    - name: datalake
+    - datalake
 
   persistence:
     size: 200Gi
