@@ -221,6 +221,7 @@ class PurgeCatalogRequest(BaseModel):
 class RequestAccessRequest(BaseModel):
     mode: str = "read"
     message: str | None = None
+    workspace_id: str | None = None
 
     @field_validator("mode")
     @classmethod
@@ -269,6 +270,28 @@ class SharedCatalogSettingsItem(BaseModel):
 class WorkspaceCatalogSettingsResponse(BaseModel):
     owned: list[CatalogResponse]
     shared: list[SharedCatalogSettingsItem]
+
+
+class CatalogDirectoryItem(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    description: str | None
+    owner_workspace_id: uuid.UUID
+    owner_workspace_name: str | None
+    schema_count: int
+    access_status: str  # 'owned' | 'approved' | 'pending' | 'none'
+    access_id: uuid.UUID | None = None
+
+
+class InboundAccessRequest(BaseModel):
+    access_id: uuid.UUID
+    catalog_id: uuid.UUID
+    catalog_name: str
+    requesting_workspace_id: uuid.UUID
+    requesting_workspace_name: str | None
+    mode: str
+    requested_at: datetime
 
 
 class SystemSettingResponse(BaseModel):

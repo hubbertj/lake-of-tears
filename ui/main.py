@@ -13,7 +13,7 @@ import httpx
 import jwt
 from dotenv import load_dotenv
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from google import genai
@@ -701,10 +701,14 @@ async def settings_workspace_get(request: Request):
     catalog_settings = {"owned": [], "shared": []}
     error = request.query_params.get("error")
     saved = request.query_params.get("saved")
+    inbound_requests = []
     if ws and token:
         members = _backend_get(f"/api/workspaces/{ws['id']}/members", token) or []
         catalog_settings = (
             _backend_get(f"/api/workspaces/{ws['id']}/settings/catalogs", token) or catalog_settings
+        )
+        inbound_requests = (
+            _backend_get(f"/api/workspaces/{ws['id']}/access/requests/inbound", token) or []
         )
     return templates.TemplateResponse(
         "settings/workspace.html",
@@ -714,6 +718,7 @@ async def settings_workspace_get(request: Request):
             "members": members,
             "workspace": ws,
             "catalog_settings": catalog_settings,
+            "inbound_requests": inbound_requests,
             "error": error,
             "saved": saved,
         },
@@ -908,6 +913,69 @@ async def settings_catalog_remove_shared(request: Request, catalog_id: str):
     if ws and token:
         _backend_delete(f"/api/workspaces/{ws['id']}/catalogs/{catalog_id}/shared", token)
     return RedirectResponse(url="/settings/workspace?tab=catalogs", status_code=302)
+
+
+@app.post("/settings/workspace/catalogs/{catalog_id}/access/{access_id}/approve")
+async def settings_catalog_approve_access(request: Request, catalog_id: str, access_id: str):
+    token = request.cookies.get("lake_token")
+    if token:
+        _backend_patch(
+            f"/api/catalogs/{catalog_id}/access/{access_id}", token, {"status": "approved"}
+        )
+    return RedirectResponse(url="/settings/workspace", status_code=302)
+
+
+@app.post("/settings/workspace/catalogs/{catalog_id}/access/{access_id}/reject")
+async def settings_catalog_reject_access(request: Request, catalog_id: str, access_id: str):
+    token = request.cookies.get("lake_token")
+    if token:
+        _backend_patch(
+            f"/api/catalogs/{catalog_id}/access/{access_id}", token, {"status": "rejected"}
+        )
+    return RedirectResponse(url="/settings/workspace", status_code=302)
+
+
+# ── Catalog directory & access request (browser-side fetch proxies) ───────
+
+
+@app.get("/api/catalogs/directory")
+async def api_catalog_directory(request: Request, workspace_id: str = ""):
+    token = request.cookies.get("lake_token")
+    if not token:
+        return JSONResponse({"detail": "Not authenticated"}, status_code=401)
+    result = _backend_get(f"/api/catalogs/directory?workspace_id={workspace_id}", token)
+    if result is None:
+        return JSONResponse({"detail": "Failed to fetch directory"}, status_code=500)
+    return JSONResponse(result)
+
+
+@app.post("/api/catalogs/{catalog_id}/access/request")
+async def api_catalog_access_request(request: Request, catalog_id: str):
+    token = request.cookies.get("lake_token")
+    if not token:
+        return JSONResponse({"ok": False, "error": "Not authenticated"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        with httpx.Client(timeout=5) as client:
+            resp = client.post(
+                f"{BACKEND_URL}/api/catalogs/{catalog_id}/access/request",
+                json=body,
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if resp.status_code in (200, 201):
+            return JSONResponse({"ok": True})
+        ct = resp.headers.get("content-type", "")
+        detail = (
+            resp.json().get("detail", "Request failed")
+            if "application/json" in ct
+            else "Request failed"
+        )
+        return JSONResponse({"ok": False, "error": detail}, status_code=resp.status_code)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
 
 
 @app.get("/health")

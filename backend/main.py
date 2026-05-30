@@ -32,6 +32,7 @@ from oauth import enabled_providers, get_oauth_redirect, handle_oauth_callback
 from schemas import (
     AddMemberRequest,
     CatalogAccessResponse,
+    CatalogDirectoryItem,
     CatalogResponse,
     CatalogSchemaResponse,
     CatalogTableResponse,
@@ -39,6 +40,7 @@ from schemas import (
     CreateSchemaRequest,
     CreateTableRequest,
     CreateWorkspaceRequest,
+    InboundAccessRequest,
     LoginRequest,
     PurgeCatalogRequest,
     RegisterRequest,
@@ -1120,14 +1122,26 @@ def request_access(
     if not catalog:
         raise HTTPException(404, "Catalog not found")
 
-    # caller must be a workspace admin
-    admin_membership = next(
-        (m for m in current_user.workspace_memberships if m.role == "admin"), None
-    )
-    if not admin_membership and current_user.role != "superadmin":
-        raise HTTPException(403, "Workspace admin access required to request catalog access")
-
-    ws_id = admin_membership.workspace_id if admin_membership else catalog.owner_workspace_id
+    # caller must be a workspace admin in the given workspace (or superadmin)
+    if req.workspace_id:
+        membership = next(
+            (
+                m
+                for m in current_user.workspace_memberships
+                if str(m.workspace_id) == req.workspace_id and m.role == "admin"
+            ),
+            None,
+        )
+        if not membership and current_user.role != "superadmin":
+            raise HTTPException(403, "Workspace admin access required to request catalog access")
+        ws_id = membership.workspace_id if membership else req.workspace_id
+    else:
+        admin_membership = next(
+            (m for m in current_user.workspace_memberships if m.role == "admin"), None
+        )
+        if not admin_membership and current_user.role != "superadmin":
+            raise HTTPException(403, "Workspace admin access required to request catalog access")
+        ws_id = admin_membership.workspace_id if admin_membership else catalog.owner_workspace_id
     if str(ws_id) == str(catalog.owner_workspace_id):
         raise HTTPException(400, "Owner workspace already has full access")
 
@@ -1218,6 +1232,109 @@ def revoke_access(
     db.delete(grant)
     db.commit()
     return {"ok": True}
+
+
+@app.get("/api/catalogs/directory", response_model=list[CatalogDirectoryItem])
+def catalog_directory(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    membership = next(
+        (m for m in current_user.workspace_memberships if str(m.workspace_id) == workspace_id),
+        None,
+    )
+    if not membership and current_user.role != "superadmin":
+        raise HTTPException(403, "Not a member of this workspace")
+    if membership and membership.role != "admin" and current_user.role != "superadmin":
+        raise HTTPException(403, "Workspace admin access required")
+
+    catalogs = (
+        db.query(Catalog)
+        .filter(
+            Catalog.deleted_at.is_(None),
+            Catalog.owner_workspace_id != workspace_id,
+        )
+        .order_by(Catalog.name)
+        .all()
+    )
+
+    grants = db.query(CatalogAccess).filter(CatalogAccess.workspace_id == workspace_id).all()
+    grant_by_catalog = {str(g.catalog_id): g for g in grants}
+
+    result = []
+    for cat in catalogs:
+        owner_ws = cat.owner_workspace
+        grant = grant_by_catalog.get(str(cat.id))
+        if grant and grant.status == "approved":
+            access_status = "approved"
+        elif grant and grant.status == "pending":
+            access_status = "pending"
+        else:
+            access_status = "none"
+        result.append(
+            CatalogDirectoryItem(
+                id=cat.id,
+                name=cat.name,
+                slug=cat.slug,
+                description=cat.description,
+                owner_workspace_id=cat.owner_workspace_id,
+                owner_workspace_name=owner_ws.name if owner_ws else None,
+                schema_count=len(cat.schemas),
+                access_status=access_status,
+                access_id=grant.id if grant else None,
+            )
+        )
+    return result
+
+
+@app.get(
+    "/api/workspaces/{workspace_id}/access/requests/inbound",
+    response_model=list[InboundAccessRequest],
+)
+def inbound_access_requests(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    membership = next(
+        (m for m in current_user.workspace_memberships if str(m.workspace_id) == workspace_id),
+        None,
+    )
+    if not membership and current_user.role != "superadmin":
+        raise HTTPException(403, "Not a member of this workspace")
+    if membership and membership.role != "admin" and current_user.role != "superadmin":
+        raise HTTPException(403, "Workspace admin access required")
+
+    owned_catalog_ids = db.query(Catalog.id).filter(
+        Catalog.owner_workspace_id == workspace_id,
+        Catalog.deleted_at.is_(None),
+    )
+    grants = (
+        db.query(CatalogAccess)
+        .filter(
+            CatalogAccess.catalog_id.in_(owned_catalog_ids),
+            CatalogAccess.status == "pending",
+        )
+        .all()
+    )
+
+    result = []
+    for g in grants:
+        cat = db.query(Catalog).filter(Catalog.id == g.catalog_id).first()
+        req_ws = db.query(Workspace).filter(Workspace.id == g.workspace_id).first()
+        result.append(
+            InboundAccessRequest(
+                access_id=g.id,
+                catalog_id=g.catalog_id,
+                catalog_name=cat.name if cat else "—",
+                requesting_workspace_id=g.workspace_id,
+                requesting_workspace_name=req_ws.name if req_ws else None,
+                mode=g.mode,
+                requested_at=g.requested_at,
+            )
+        )
+    return result
 
 
 @app.get("/api/workspaces/{workspace_id}/catalogs", response_model=list[CatalogResponse])

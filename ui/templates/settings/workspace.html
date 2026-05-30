@@ -70,6 +70,7 @@
   <div class="card p-6 mb-6">
     <div class="flex items-center justify-between mb-4">
       <h2 class="text-sm font-semibold text-gray-300">Catalogs</h2>
+      <button onclick="openCatalogDirectory()" class="text-xs px-2.5 py-1.5 rounded-md border border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-500 transition-colors">+ Add catalog</button>
     </div>
 
     <!-- Tab bar -->
@@ -143,20 +144,23 @@
     {% if shared_catalogs %}
     <div class="space-y-1">
       {% for sc in shared_catalogs %}
+      {% set sc_pending = sc.status == 'pending' %}
       <div class="flex items-center gap-3 py-2 border-b border-white/[0.04] last:border-0">
         <div class="flex-1 min-w-0">
-          <div class="text-sm text-gray-200 truncate">
+          <div class="text-sm {% if sc_pending %}text-gray-500{% else %}text-gray-200{% endif %} truncate">
             {% if sc.owner_workspace_name %}<span class="text-gray-500">{{ sc.owner_workspace_name }}.</span>{% endif %}{{ sc.catalog_name }}
           </div>
-          <div class="text-[11px] text-gray-500">
-            {{ sc.status }}{% if sc.suspended %} · <span class="text-yellow-600">suspended</span>{% endif %}
-          </div>
+          {% if sc.suspended %}<div class="text-[11px] text-yellow-600">suspended</div>{% endif %}
         </div>
-        <span class="text-[10px] px-1.5 py-0.5 rounded border border-gray-700 text-gray-500 shrink-0">read</span>
+        {% if sc_pending %}
+        <span class="text-[10px] px-1.5 py-0.5 rounded bg-yellow-900/30 text-yellow-500 border border-yellow-800/40 shrink-0">pending approval</span>
+        {% else %}
+        <span class="text-[10px] px-1.5 py-0.5 rounded border border-gray-700 text-gray-500 shrink-0">{{ sc.mode or 'read' }}</span>
         <form action="/settings/workspace/catalogs/{{ sc.catalog_id }}/remove-shared" method="post"
               onsubmit="return confirm('Remove shared access to \'{{ sc.catalog_name }}\'?')">
           <button type="submit" class="text-xs px-2.5 py-1 rounded border border-gray-700 text-gray-500 hover:text-red-400 hover:border-red-600/50 transition-colors shrink-0">Remove</button>
         </form>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
@@ -206,6 +210,172 @@
     document.getElementById('purge-submit').disabled = this.value !== _purgeExpected;
   });
   </script>
+
+  <!-- Catalog directory modal -->
+  <div id="catalog-dir-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/70">
+    <div class="bg-[#1a1a1a] border border-white/10 rounded-xl shadow-2xl w-full max-w-lg p-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-base font-semibold text-gray-200">Browse catalogs</h2>
+        <button onclick="closeCatalogDirectory()" class="text-gray-500 hover:text-gray-300 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <input id="catalog-dir-search" type="text" placeholder="Search by name or workspace…"
+             oninput="filterCatalogDir()" autocomplete="off"
+             class="w-full input-dark text-sm mb-4" style="background-color: var(--c-input-bg); border-color: var(--c-input-border);" />
+      <div id="catalog-dir-loading" class="text-sm text-gray-500 text-center py-8">Loading…</div>
+      <div id="catalog-dir-list" class="hidden space-y-1 max-h-80 overflow-y-auto pr-1"></div>
+      <div id="catalog-dir-empty" class="hidden text-sm text-gray-500 text-center py-8">No catalogs found.</div>
+    </div>
+  </div>
+
+  <script>
+  let _catalogDirItems = [];
+  const _wsId = "{{ workspace.id }}";
+
+  function openCatalogDirectory() {
+    document.getElementById('catalog-dir-modal').classList.remove('hidden');
+    document.getElementById('catalog-dir-loading').classList.remove('hidden');
+    document.getElementById('catalog-dir-list').classList.add('hidden');
+    document.getElementById('catalog-dir-empty').classList.add('hidden');
+    document.getElementById('catalog-dir-search').value = '';
+    setTimeout(() => document.getElementById('catalog-dir-search').focus(), 50);
+
+    fetch('/api/catalogs/directory?workspace_id=' + _wsId)
+      .then(r => r.json())
+      .then(items => {
+        _catalogDirItems = Array.isArray(items) ? items : [];
+        renderCatalogDir(_catalogDirItems);
+      })
+      .catch(() => {
+        document.getElementById('catalog-dir-loading').textContent = 'Failed to load catalogs.';
+      });
+  }
+
+  function closeCatalogDirectory() {
+    document.getElementById('catalog-dir-modal').classList.add('hidden');
+  }
+
+  function filterCatalogDir() {
+    const q = document.getElementById('catalog-dir-search').value.toLowerCase();
+    const filtered = _catalogDirItems.filter(item =>
+      item.name.toLowerCase().includes(q) ||
+      (item.owner_workspace_name || '').toLowerCase().includes(q)
+    );
+    renderCatalogDir(filtered);
+  }
+
+  function escHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str || '';
+    return d.innerHTML;
+  }
+
+  function renderCatalogDir(items) {
+    document.getElementById('catalog-dir-loading').classList.add('hidden');
+    const list = document.getElementById('catalog-dir-list');
+    const empty = document.getElementById('catalog-dir-empty');
+    if (!items.length) {
+      list.classList.add('hidden');
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+    list.innerHTML = '';
+    items.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-3 py-2 border-b border-white/[0.04] last:border-0';
+      row.dataset.id = item.id;
+
+      let btnHtml = '';
+      if (item.access_status === 'none') {
+        btnHtml = `<button onclick="requestCatalogAccess('${escHtml(item.id)}', this)" class="text-xs px-2.5 py-1 rounded border border-blue-700/50 text-blue-400 hover:text-blue-300 transition-colors shrink-0">Request</button>`;
+      } else if (item.access_status === 'pending') {
+        btnHtml = `<button disabled title="Request is awaiting approval" class="text-xs px-2.5 py-1 rounded border border-gray-700 text-gray-500 cursor-not-allowed shrink-0">Pending…</button>`;
+      } else if (item.access_status === 'approved') {
+        btnHtml = `<button disabled class="text-xs px-2.5 py-1 rounded border border-emerald-800/50 text-emerald-600 cursor-not-allowed shrink-0">✓ Added</button>`;
+      }
+
+      const schemaLabel = item.schema_count === 1 ? '1 schema' : (item.schema_count || 0) + ' schemas';
+      const desc = item.description ? ' · ' + escHtml(item.description) : '';
+      row.innerHTML = `
+        <div class="flex-1 min-w-0">
+          <div class="text-sm text-gray-200 truncate">
+            ${escHtml(item.name)}<span class="text-gray-500 text-[11px] ml-1">· ${escHtml(item.owner_workspace_name)}</span>
+          </div>
+          <div class="text-[11px] text-gray-500">${schemaLabel}${desc}</div>
+        </div>
+        ${btnHtml}
+      `;
+      list.appendChild(row);
+    });
+    list.classList.remove('hidden');
+  }
+
+  function requestCatalogAccess(catalogId, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Pending…';
+    btn.className = 'text-xs px-2.5 py-1 rounded border border-gray-700 text-gray-500 cursor-not-allowed shrink-0';
+
+    fetch('/api/catalogs/' + catalogId + '/access/request', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({mode: 'read', workspace_id: _wsId}),
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (!data.ok) {
+          btn.disabled = false;
+          btn.textContent = 'Request';
+          btn.className = 'text-xs px-2.5 py-1 rounded border border-blue-700/50 text-blue-400 hover:text-blue-300 transition-colors shrink-0';
+          const row = btn.closest('[data-id]');
+          let errEl = row.querySelector('.err-msg');
+          if (!errEl) {
+            errEl = document.createElement('div');
+            errEl.className = 'err-msg text-[11px] text-red-400 mt-0.5';
+            row.querySelector('.flex-1').appendChild(errEl);
+          }
+          errEl.textContent = data.error || 'Request failed.';
+        }
+      })
+      .catch(() => {
+        btn.disabled = false;
+        btn.textContent = 'Request';
+        btn.className = 'text-xs px-2.5 py-1 rounded border border-blue-700/50 text-blue-400 hover:text-blue-300 transition-colors shrink-0';
+      });
+  }
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') closeCatalogDirectory();
+  });
+  </script>
+  {% endif %}
+
+  {% if inbound_requests %}
+  <!-- Inbound access requests -->
+  <div class="card p-6 mb-6">
+    <h2 class="text-sm font-semibold text-gray-300 mb-4">Inbound access requests ({{ inbound_requests | length }})</h2>
+    <div class="space-y-1">
+      {% for req in inbound_requests %}
+      <div class="flex items-center gap-3 py-2 border-b border-white/[0.04] last:border-0">
+        <div class="flex-1 min-w-0">
+          <div class="text-sm text-gray-300 truncate">
+            <span class="text-gray-400">{{ req.requesting_workspace_name or 'Unknown workspace' }}</span>
+            <span class="text-gray-600 mx-1">→</span>
+            <span class="text-gray-200">{{ req.catalog_name }}</span>
+          </div>
+          <div class="text-[11px] text-gray-500">{{ req.mode }} · {{ req.requested_at[:10] }}</div>
+        </div>
+        <form action="/settings/workspace/catalogs/{{ req.catalog_id }}/access/{{ req.access_id }}/approve" method="post" class="shrink-0">
+          <button type="submit" class="text-xs px-2.5 py-1 rounded border border-emerald-700/50 text-emerald-500 hover:text-emerald-300 transition-colors">Approve</button>
+        </form>
+        <form action="/settings/workspace/catalogs/{{ req.catalog_id }}/access/{{ req.access_id }}/reject" method="post" class="shrink-0">
+          <button type="submit" class="text-xs px-2.5 py-1 rounded border border-gray-700 text-gray-500 hover:text-red-400 hover:border-red-600/50 transition-colors">Reject</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
   {% endif %}
 
   <!-- Members -->
