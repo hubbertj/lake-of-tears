@@ -546,7 +546,9 @@ async def pipelines(request: Request):
 async def notebooks(request: Request):
     ws = request.state.workspace
     token_param = f"?token={JUPYTER_TOKEN}" if JUPYTER_TOKEN else ""
-    embed_url = f"/jupyter/lab/tree/{ws['slug']}/{token_param}" if ws else f"/jupyter/lab{token_param}"
+    embed_url = (
+        f"/jupyter/lab/tree/{ws['slug']}/{token_param}" if ws else f"/jupyter/lab{token_param}"
+    )
     return templates.TemplateResponse(
         "embed.html",
         {
