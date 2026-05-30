@@ -105,7 +105,8 @@ spec:
                   name: http
 
 ---
-# Apache Superset — served at /superset/ (no rewrite; Superset handles APPLICATION_PREFIX_PATH)
+# Apache Superset — nginx strips /superset prefix before forwarding.
+# wsgi.py injects SCRIPT_NAME=/superset so Flask generates correct prefixed URLs.
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -114,6 +115,8 @@ metadata:
     {{- $labels | nindent 4 }}
   annotations:
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
     {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
@@ -127,8 +130,8 @@ spec:
     - host: {{ .Values.ingress.host }}
       http:
         paths:
-          - path: /superset/
-            pathType: Prefix
+          - path: /superset(/|$)(.*)
+            pathType: ImplementationSpecific
             backend:
               service:
                 name: {{ $fullName }}-superset

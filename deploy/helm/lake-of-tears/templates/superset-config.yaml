@@ -12,4 +12,23 @@ metadata:
     app.kubernetes.io/component: superset
 data:
   superset_config.py: |
-    APPLICATION_PREFIX_PATH = "/superset"
+    # intentionally minimal — ProxyFix is applied in wsgi.py
+    pass
+
+  wsgi.py: |
+    # Gunicorn entrypoint for Superset served under /superset/.
+    # nginx strips the /superset prefix before forwarding, so PATH_INFO
+    # arrives without it. We inject SCRIPT_NAME=/superset so Flask generates
+    # correct prefixed URLs for redirects and internal links.
+    from superset.app import create_app
+
+    class _PrefixMiddleware:
+        def __init__(self, app, prefix):
+            self.app = app
+            self.prefix = prefix
+        def __call__(self, environ, start_response):
+            environ["SCRIPT_NAME"] = self.prefix
+            return self.app(environ, start_response)
+
+    application = create_app()
+    application.wsgi_app = _PrefixMiddleware(application.wsgi_app, "/superset")
