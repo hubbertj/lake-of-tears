@@ -153,7 +153,7 @@ airflow:
     port: 8080
 
   persistence:
-    size: 2Gi
+    size: 1Gi
 
   # Additional pip packages installed at container startup via _PIP_ADDITIONAL_REQUIREMENTS
   extraPipPackages: []
@@ -231,6 +231,10 @@ postgres:
     database: lake_auth
     username: lake_auth
     password: ""  # REQUIRED
+
+  airflow:
+    username: airflow
+    password: ""  # REQUIRED — set in values-secret.yaml
 
   persistence:
     size: 5Gi

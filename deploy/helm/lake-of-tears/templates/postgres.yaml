@@ -1,5 +1,16 @@
 {{- if .Values.postgres.enabled }}
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lake-of-tears.fullname" . }}-postgres-initdb
+  labels: {{ include "lake-of-tears.labels" . | nindent 4 }}
+data:
+  01-airflow.sql: |
+    CREATE USER airflow WITH PASSWORD '{{ required "postgres.airflow.password is required" .Values.postgres.airflow.password }}';
+    CREATE DATABASE airflow OWNER airflow;
+    GRANT ALL PRIVILEGES ON DATABASE airflow TO airflow;
+---
+apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: {{ include "lake-of-tears.fullname" . }}-postgres
@@ -45,6 +56,8 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
           readinessProbe:
             exec:
               command: ["pg_isready", "-U", {{ .Values.postgres.auth.username | quote }}, "-d", {{ .Values.postgres.auth.database | quote }}]
@@ -55,6 +68,9 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "lake-of-tears.fullname" . }}-postgres
+        - name: initdb
+          configMap:
+            name: {{ include "lake-of-tears.fullname" . }}-postgres-initdb
 ---
 apiVersion: v1
 kind: Service
