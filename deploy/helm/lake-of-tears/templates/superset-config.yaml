@@ -1,8 +1,8 @@
 ---
 # ConfigMap holding the Superset Python config.
 # Mounted at /app/pythonpath/superset_config.py inside the container.
-# APPLICATION_PREFIX_PATH tells Superset to serve under /superset/,
-# matching the nginx Ingress path and the iframe src in the Lake UI.
+# Superset is served at its own subdomain (ingress.supersetHost), so no path prefix
+# is needed. WTF_CSRF_ENABLED=False + TALISMAN_ENABLED=False allow iframe embedding.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -12,4 +12,10 @@ metadata:
     app.kubernetes.io/component: superset
 data:
   superset_config.py: |
-    APPLICATION_PREFIX_PATH = "/superset"
+    # Allow Superset to be embedded in an iframe from any origin.
+    # Lake UI handles auth — users are already authenticated before reaching the iframe.
+    SESSION_COOKIE_SAMESITE = "None"
+    SESSION_COOKIE_SECURE = False
+    WTF_CSRF_ENABLED = False
+    TALISMAN_ENABLED = False
+    TALISMAN_CONFIG = {"force_https": False, "frame_options": "ALLOWALL"}
