@@ -730,6 +730,60 @@ def _resolve_workspace(workspace_id: str | None, user: User, db: Session) -> Wor
     return ws
 
 
+@app.get("/api/catalogs/directory", response_model=list[CatalogDirectoryItem])
+def catalog_directory(
+    workspace_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    membership = next(
+        (m for m in current_user.workspace_memberships if str(m.workspace_id) == workspace_id),
+        None,
+    )
+    if not membership and current_user.role != "superadmin":
+        raise HTTPException(403, "Not a member of this workspace")
+    if membership and membership.role != "admin" and current_user.role != "superadmin":
+        raise HTTPException(403, "Workspace admin access required")
+
+    catalogs = (
+        db.query(Catalog)
+        .filter(
+            Catalog.deleted_at.is_(None),
+            Catalog.owner_workspace_id != workspace_id,
+        )
+        .order_by(Catalog.name)
+        .all()
+    )
+
+    grants = db.query(CatalogAccess).filter(CatalogAccess.workspace_id == workspace_id).all()
+    grant_by_catalog = {str(g.catalog_id): g for g in grants}
+
+    result = []
+    for cat in catalogs:
+        owner_ws = cat.owner_workspace
+        grant = grant_by_catalog.get(str(cat.id))
+        if grant and grant.status == "approved":
+            access_status = "approved"
+        elif grant and grant.status == "pending":
+            access_status = "pending"
+        else:
+            access_status = "none"
+        result.append(
+            CatalogDirectoryItem(
+                id=cat.id,
+                name=cat.name,
+                slug=cat.slug,
+                description=cat.description,
+                owner_workspace_id=cat.owner_workspace_id,
+                owner_workspace_name=owner_ws.name if owner_ws else None,
+                schema_count=len(cat.schemas),
+                access_status=access_status,
+                access_id=grant.id if grant else None,
+            )
+        )
+    return result
+
+
 @app.get("/api/catalogs/{catalog_id}", response_model=CatalogResponse)
 def get_catalog(
     catalog_id: str,
@@ -1232,60 +1286,6 @@ def revoke_access(
     db.delete(grant)
     db.commit()
     return {"ok": True}
-
-
-@app.get("/api/catalogs/directory", response_model=list[CatalogDirectoryItem])
-def catalog_directory(
-    workspace_id: str,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    membership = next(
-        (m for m in current_user.workspace_memberships if str(m.workspace_id) == workspace_id),
-        None,
-    )
-    if not membership and current_user.role != "superadmin":
-        raise HTTPException(403, "Not a member of this workspace")
-    if membership and membership.role != "admin" and current_user.role != "superadmin":
-        raise HTTPException(403, "Workspace admin access required")
-
-    catalogs = (
-        db.query(Catalog)
-        .filter(
-            Catalog.deleted_at.is_(None),
-            Catalog.owner_workspace_id != workspace_id,
-        )
-        .order_by(Catalog.name)
-        .all()
-    )
-
-    grants = db.query(CatalogAccess).filter(CatalogAccess.workspace_id == workspace_id).all()
-    grant_by_catalog = {str(g.catalog_id): g for g in grants}
-
-    result = []
-    for cat in catalogs:
-        owner_ws = cat.owner_workspace
-        grant = grant_by_catalog.get(str(cat.id))
-        if grant and grant.status == "approved":
-            access_status = "approved"
-        elif grant and grant.status == "pending":
-            access_status = "pending"
-        else:
-            access_status = "none"
-        result.append(
-            CatalogDirectoryItem(
-                id=cat.id,
-                name=cat.name,
-                slug=cat.slug,
-                description=cat.description,
-                owner_workspace_id=cat.owner_workspace_id,
-                owner_workspace_name=owner_ws.name if owner_ws else None,
-                schema_count=len(cat.schemas),
-                access_status=access_status,
-                access_id=grant.id if grant else None,
-            )
-        )
-    return result
 
 
 @app.get(
