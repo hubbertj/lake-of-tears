@@ -3,3 +3,11 @@
 
 # Serve Superset under /superset/ path (proxied by nginx).
 APPLICATION_PREFIX_PATH = "/superset"
+
+# Allow Superset to be embedded in an iframe from the Lake UI shell.
+# Default HTTP_HEADERS includes X-Frame-Options: SAMEORIGIN which blocks iframes.
+HTTP_HEADERS = {}
+# Flask-Talisman also sets X-Frame-Options; override it here.
+TALISMAN_CONFIG = {
+    "frame_options": "ALLOWALL",
+}
