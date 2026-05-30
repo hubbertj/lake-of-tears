@@ -44,7 +44,7 @@ spec:
             # BASE_URL tells Airflow to prefix all generated links with /airflow/.
             # The nginx Ingress strips this prefix before forwarding to the pod.
             - name: AIRFLOW__WEBSERVER__BASE_URL
-              value: "https://{{ .Values.ingress.host }}/airflow"
+              value: "{{ if .Values.ingress.tls }}https{{ else }}http{{ end }}://{{ .Values.ingress.host }}/airflow"
             - name: _AIRFLOW_WWW_USER_USERNAME
               value: admin
             - name: _AIRFLOW_WWW_USER_PASSWORD
