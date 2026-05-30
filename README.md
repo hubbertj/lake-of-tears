@@ -106,36 +106,173 @@ All services are accessible from the left sidebar. Direct ports are also availab
 
 ---
 
-## Quick Start (Kubernetes / Helm)
+## Deploying with Helm (Kubernetes)
+
+### Prerequisites
+
+- Kubernetes cluster with an nginx Ingress controller (`ingress-nginx`)
+- A StorageClass available for PersistentVolumeClaims (NFS, Longhorn, local-path, etc.)
+- DNS records pointing your chosen hostnames at the cluster's ingress IP
+- `helm` v3 and `kubectl` configured for your cluster
+
+### How configuration works
+
+The Helm chart separates **non-secret config** (hostnames, image tags, resource limits) from **secrets** (passwords, API keys, tokens). The recommended approach is two files:
+
+| File | Contents | Committed to git? |
+|------|----------|-------------------|
+| `deploy/helm/values-prod.yaml` | Hostnames, storage class, resource overrides | Yes |
+| `/etc/lake-of-tears/values-secret.yaml` | All passwords and API keys | **Never** |
+
+### Step 1 — Create your secrets file
+
+Create `/etc/lake-of-tears/values-secret.yaml` (or any path outside the repo) and populate every required value:
+
+```yaml
+# /etc/lake-of-tears/values-secret.yaml
+# Keep this file off of version control.
+
+minio:
+  rootUser: "minio"
+  rootPassword: "<strong password>"       # MinIO root credentials
+
+jupyter:
+  token: "<random token>"                 # JupyterLab access token
+
+superset:
+  secretKey: "<random secret>"            # Superset Flask secret key
+  adminPassword: "<password>"             # Superset admin account password
+
+airflow:
+  secretKey: "<random secret>"            # Airflow Flask secret key
+  adminPassword: "<password>"             # Airflow admin account password
+
+postgres:
+  auth:
+    password: "<password>"                # Auth database (lake_auth) password
+  airflow:
+    password: "<password>"                # Airflow metadata database password
+
+backend:
+  auth:
+    secretKey: "<random secret>"          # JWT signing key (shared between UI and backend)
+  # SSO — configure only the providers you use (all optional)
+  google:
+    clientSecret: ""
+  github:
+    clientSecret: ""
+  microsoft:
+    clientSecret: ""
+  oidc:
+    clientSecret: ""
+
+gemini:
+  apiKey: "<your Google AI Studio API key>"
+
+# Data source credentials (all optional)
+stripe:
+  secretKey: ""
+shopify:
+  storeDomain: ""
+  accessToken: ""
+hubspot:
+  accessToken: ""
+```
+
+**Generating secrets** — use Python to create strong random values:
+
+```bash
+# Flask secret keys and JWT signing key
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# JupyterLab token
+python3 -c "import secrets; print(secrets.token_hex(32))"
+
+# Database passwords
+python3 -c "import secrets; print(secrets.token_urlsafe(24))"
+```
+
+### Step 2 — Create your production values file
+
+```yaml
+# deploy/helm/values-prod.yaml
+global:
+  storageClass: "nfs-client"   # your StorageClass name
+
+ingress:
+  host: lake.example.com
+  minioConsoleHost: minio.example.com
+  minioApiHost: minio-api.example.com
+  tls:
+    - secretName: lake-of-tears-tls
+      hosts:
+        - lake.example.com
+        - minio.example.com
+        - minio-api.example.com
+
+backend:
+  auth:
+    baseUrl: "https://lake.example.com"   # used for OAuth callback URIs
+
+lakeui:
+  minioConsoleUrl: "https://minio.example.com"
+```
+
+### Step 3 — Install
 
 ```bash
 helm install lake-of-tears ./deploy/helm/lake-of-tears \
-  --set minio.rootPassword=your-password \
-  --set gemini.apiKey=your-key \
-  --set jupyter.token=your-token \
-  --set superset.secretKey=your-secret \
-  --set superset.adminPassword=your-password \
-  --set airflow.secretKey=your-secret \
-  --set airflow.adminPassword=your-password \
-  --set backend.auth.secretKey=$(python3 -c "import secrets; print(secrets.token_hex(32))") \
-  --set backend.auth.baseUrl=https://lake.example.com \
-  --set postgres.auth.password=your-db-password \
-  --set ingress.host=lake.example.com \
-  --set ingress.minioConsoleHost=minio.example.com
+  --namespace lake-of-tears \
+  --create-namespace \
+  --values deploy/helm/values-prod.yaml \
+  --values /etc/lake-of-tears/values-secret.yaml \
+  --wait --timeout 10m
 ```
 
-All services are routed through the nginx Ingress controller on a single host:
+To upgrade after a code or config change:
 
-| Path | Service |
-|------|---------|
-| `lake.example.com/api/` | Auth backend |
-| `lake.example.com/` | Lake UI shell |
-| `lake.example.com/jupyter/` | JupyterLab |
-| `lake.example.com/superset/` | Apache Superset |
-| `lake.example.com/airflow/` | Apache Airflow |
-| `minio.example.com/` | MinIO Console |
+```bash
+helm upgrade lake-of-tears ./deploy/helm/lake-of-tears \
+  --namespace lake-of-tears \
+  --values deploy/helm/values-prod.yaml \
+  --values /etc/lake-of-tears/values-secret.yaml \
+  --wait --timeout 10m
+```
 
-See `deploy/helm/lake-of-tears/values.yaml` for the full list of configurable values.
+### Service URLs
+
+All services are routed through the nginx Ingress controller:
+
+| URL | Service |
+|-----|---------|
+| `https://lake.example.com/` | Lake UI shell |
+| `https://lake.example.com/api/` | Auth backend |
+| `https://lake.example.com/jupyter/` | JupyterLab |
+| `https://lake.example.com/superset/` | Apache Superset |
+| `https://lake.example.com/airflow/` | Apache Airflow |
+| `https://minio.example.com/` | MinIO Console |
+| `https://minio-api.example.com/` | MinIO S3 API |
+
+### Required values reference
+
+Every value marked **required** must be present in your secrets file or the Helm render will fail with an error.
+
+| Value | Required | Description |
+|-------|----------|-------------|
+| `minio.rootPassword` | yes | MinIO root password (8–40 chars) |
+| `jupyter.token` | yes | JupyterLab access token |
+| `superset.secretKey` | yes | Superset Flask secret key |
+| `superset.adminPassword` | yes | Superset admin account password |
+| `airflow.secretKey` | yes | Airflow Flask/Fernet secret key |
+| `airflow.adminPassword` | yes | Airflow admin account password |
+| `postgres.auth.password` | yes | Auth database (`lake_auth`) password |
+| `postgres.airflow.password` | yes | Airflow metadata database password |
+| `backend.auth.secretKey` | yes | JWT signing secret (generate with `token_hex(32)`) |
+| `gemini.apiKey` | yes | Google AI Studio API key (for embeddings and RAG) |
+| `ingress.host` | yes | Primary hostname for the Lake UI and embedded services |
+| `ingress.minioConsoleHost` | yes | Hostname for the MinIO Console |
+
+See `deploy/helm/lake-of-tears/values.yaml` for the full list of optional values (resource limits, image tags, SSO provider IDs, data source credentials, etc.).
 
 ---
 
